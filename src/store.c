@@ -228,6 +228,8 @@ static int fetch(const char *url, const char *dest) {
     return sceIoRename(part, dest);
 }
 
+int store_fetch(const char *url, const char *dest) { return fetch(url, dest); }
+
 /* ---------- unzip (the same inflater and checks as the agent installer) ---------- */
 
 static unsigned char inbuf[64 * 1024], dict[TINFL_LZ_DICT_SIZE], cdir[64 * 1024];

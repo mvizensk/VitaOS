@@ -29,6 +29,7 @@
 #include "apps.h"
 #include "camera.h"
 #include "library.h"
+#include "update.h"
 #include "memo.h"
 #include "files.h"
 #include "downloads.h"
@@ -547,6 +548,7 @@ int main(void) {
     files_init();
     if (net >= 0) downloads_init();
     if (net >= 0) weather_init();
+    if (net >= 0) update_init();                     /* a newer VitaOS? at most once a day */
     SceUID pw = sceKernelCreateThread("home_prewarm", prewarm, 0x10000100, 0x8000, 0, 0, NULL);
     if (pw >= 0) sceKernelStartThread(pw, 0, NULL);
     SceUID wd = sceKernelCreateThread("home_watchdog", watchdog, 0x10000100, 0x2000, 0, 0, NULL);

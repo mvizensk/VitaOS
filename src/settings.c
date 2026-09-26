@@ -15,9 +15,8 @@
 #include <psp2/kernel/processmgr.h>
 
 #include "settings.h"
-#ifndef VITAOS_VERSION
-#define VITAOS_VERSION "1.0"
-#endif
+#include "version.h"
+#include "update.h"
 #include "weather.h"
 #include "sfx.h"
 #include "storage.h"
@@ -281,8 +280,12 @@ void settings_update(const Input *in) {
         if (focus == F_STORAGE) storage_open();
         if (focus == F_BUBBLES && release_ps) release_ps();
         if (focus == F_WEATHER) weather_pick();
-        static const char *const vitaos_items[] = {"Find games again", "Download box art", "About VitaOS"};
-        int pick = focus == F_ABOUT ? ui_menu("VitaOS", vitaos_items, 3) : -1;
+        static char get_label[40];
+        const char *vitaos_items[4] = {"Find games again", "Download box art", "About VitaOS", get_label};
+        const char *newer = update_newer();
+        if (newer) snprintf(get_label, sizeof(get_label), "Get VitaOS %s", newer);
+        int pick = focus == F_ABOUT ? ui_menu("VitaOS", (const char *const *)vitaos_items, newer ? 4 : 3) : -1;
+        if (pick == 3) update_get();
         if (pick == 0 && lib_rescan) lib_rescan();
         if (pick == 1 && lib_art) lib_art();
         if (pick == 2)
