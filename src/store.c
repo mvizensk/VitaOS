@@ -27,21 +27,27 @@
 #define DIR "ux0:data/arcadehub/store"
 #define CATALOG_URL "https://drdecki.github.io/VitaHomebrewDB/apps.json"
 #define ICON_URL "https://drdecki.github.io/VitaHomebrewDB/icons/"
+#define BASE_URL "https://drdecki.github.io/VitaHomebrewDB/"
 #define MAX_APPS 1400
 
 typedef struct {
     char *name, *icon, *version, *author, *type, *description, *date, *titleid, *long_description,
-         *size, *url, *data, *requirements, *release_page, *downloads;
+         *size, *url, *data, *requirements, *release_page, *downloads, *screenshots;
     volatile int icon_state;                  /* 0 not asked, 1 queued, 2 on the card, 3 failed, 4 loaded */
+    volatile int shots_state;                 /* 0 not asked, 1 fetching, 2 on the card */
+    int inst;                                 /* 0 not checked, 1 not installed, 2 installed */
 } App;
 
 static App apps[MAX_APPS];
 static int napps, view[MAX_APPS], nview;
 static char *blob;
-static int cat;                      /* 0 all, then the VitaDB types below */
-static const char *const cat_names[] = {"All", "Games", "Ports", "Utilities", "Emulators"};
-static const char *const cat_types[] = {NULL, "1", "2", "4", "5"};
-static int sel, detail, chips;
+/* The front page is "For you" (rows, like the Play Store), then Top charts,
+ * then one grid per VitaDB type. */
+enum { C_FORYOU, C_TOP, NCATS = 6 };
+static int cat;
+static const char *const cat_names[] = {"For you", "Top charts", "Games", "Ports", "Utilities", "Emulators"};
+static const char *const cat_types[] = {NULL, NULL, "1", "2", "4", "5"};
+static int sel, detail, chips, cur;                  /* cur: the app on the detail page (index into apps) */
 static float top;
 static int grow_sel = -1;
 static float grow;
@@ -51,7 +57,7 @@ static SceUID wake = -1;
 static volatile int want_catalog, installing = -1, job_stage, catalog_state;   /* catalog: 0 none 1 loading 2 ok 3 failed */
 static volatile float job_frac;
 static char job_msg[128];
-static volatile int icon_queue[16], iq_head, iq_tail;
+static volatile int icon_queue[16], iq_head, iq_tail, shot_want = -1;
 
 /* Titles that have caused trouble on this Vita: shown, never installed. */
 static int denied(const App *a) {
@@ -99,11 +105,43 @@ static int by_popular(const void *a, const void *b) {
 }
 static int sort_new;                  /* 0 popular (default), 1 newest */
 
+/* For you: a featured banner, then rows of the most popular in each kind,
+ * then what is new. Built from the catalogue whenever it changes. */
+#define NROWS 7
+#define ROW_MAX 14
+static const char *const row_titles[NROWS] = {"", "Popular right now", "Emulators", "Ports of PC and console games",
+                                               "Handy utilities", "Homebrew games", "New and updated"};
+static const char *const row_types[NROWS] = {NULL, NULL, "5", "2", "4", "1", NULL};
+static int rows[NROWS][ROW_MAX], nrow[NROWS], rcol[NROWS], rrow;
+static float rscroll[NROWS], vscroll;
+
+static void build_rows(void) {
+    static int all[MAX_APPS];
+    for (int i = 0; i < napps; ++i) all[i] = i;
+    qsort(all, napps, sizeof(int), by_popular);
+    for (int r = 0; r < NROWS; ++r) {
+        nrow[r] = 0;
+        if (r == NROWS - 1) continue;
+        for (int k = 0; k < napps && nrow[r] < (r == 0 ? 6 : ROW_MAX); ++k) {
+            App *a = &apps[all[k]];
+            if (row_types[r] && strcmp(a->type, row_types[r])) continue;
+            if (r == 0 && !a->screenshots[0]) continue;          /* the banner wants a picture */
+            rows[r][nrow[r]++] = all[k];
+        }
+    }
+    int *nw = rows[NROWS - 1];
+    for (int i = 0; i < napps; ++i) all[i] = i;
+    qsort(all, napps, sizeof(int), by_date);
+    for (int k = 0; k < napps && nrow[NROWS - 1] < ROW_MAX; ++k) nw[nrow[NROWS - 1]++] = all[k];
+    for (int r = 0; r < NROWS; ++r) { rcol[r] = 0; rscroll[r] = 0; }
+    rrow = 0; vscroll = 0;
+}
+
 static void filter(void) {
     nview = 0;
     for (int i = 0; i < napps; ++i)
         if (!cat_types[cat] || !strcmp(apps[i].type, cat_types[cat])) view[nview++] = i;
-    qsort(view, nview, sizeof(int), sort_new ? by_date : by_popular);
+    qsort(view, nview, sizeof(int), sort_new && cat >= 2 ? by_date : by_popular);
     sel = 0; top = 0;
 }
 
@@ -124,7 +162,7 @@ static int parse(char *p, App *out) {
             if (cur.name && cur.url) {
 #define DEF(f) if (!cur.f) cur.f = ""
                 DEF(icon); DEF(version); DEF(author); DEF(type); DEF(description); DEF(date); DEF(titleid);
-                DEF(long_description); DEF(size); DEF(data); DEF(requirements); DEF(release_page); DEF(downloads);
+                DEF(long_description); DEF(size); DEF(data); DEF(requirements); DEF(release_page); DEF(downloads); DEF(screenshots);
                 out[n++] = cur;
             }
             ++p;
@@ -141,6 +179,7 @@ static int parse(char *p, App *out) {
         if (0) {}
         KEY(name); KEY(icon); KEY(version); KEY(author); KEY(type); KEY(description); KEY(date); KEY(titleid);
         KEY(long_description); KEY(size); KEY(url); KEY(data); KEY(requirements); KEY(release_page); KEY(downloads);
+        KEY(screenshots);
     }
     return n;
 }
@@ -171,6 +210,7 @@ static void swap_in(void) {                           /* main thread, never mid-
     napps = nspare;
     spare_ready = 0;
     filter();
+    build_rows();
 }
 
 /* ---------- network ---------- */
@@ -514,6 +554,25 @@ static int worker(SceSize args, void *argp) {
             if (fetch(CATALOG_URL, DIR "/apps.json") >= 0 && load_catalog() >= 0) catalog_state = 2;
             else if (catalog_state != 2) catalog_state = 3;
         }
+        if (shot_want >= 0 && shot_want < napps) {     /* the detail page's screenshots, up to three */
+            App *a = &apps[shot_want];
+            shot_want = -1;
+            sceIoMkdir(DIR "/shots", 0777);
+            char list[512];
+            snprintf(list, sizeof(list), "%s", a->screenshots);
+            int k = 0;
+            for (char *s = strtok(list, ";"); s && k < 3; s = strtok(NULL, ";"), ++k) {
+                const char *base = strrchr(s, '/') ? strrchr(s, '/') + 1 : s;
+                char url[300], dest[256];
+                SceIoStat st;
+                snprintf(dest, sizeof(dest), DIR "/shots/%s", base);
+                if (sceIoGetstat(dest, &st) < 0) {
+                    snprintf(url, sizeof(url), BASE_URL "%s", s);
+                    fetch(url, dest);
+                }
+            }
+            a->shots_state = 2;
+        }
         while (iq_tail != iq_head) {                   /* icons: on the card already, or fetched */
             int i = icon_queue[iq_tail % 16];
             if (i >= 0 && i < napps) {
@@ -559,133 +618,346 @@ static vita2d_texture *icon_of(App *a) {
 }
 
 
+/* ---------- the store's pages ---------- */
+
+static void short_count(const char *n, char *out, int max) {
+    long v = atol(n);
+    if (v >= 1000000) snprintf(out, max, "%.1fM", v / 1e6);
+    else if (v >= 10000) snprintf(out, max, "%ldK", (v + 500) / 1000);
+    else if (v >= 1000) snprintf(out, max, "%.1fK", v / 1e3);
+    else snprintf(out, max, "%ld", v);
+}
+
+static const char *type_name(const App *a) {
+    switch (atoi(a->type)) {
+    case 1: return "Game";
+    case 2: return "Port";
+    case 4: return "Utility";
+    case 5: return "Emulator";
+    }
+    return "App";
+}
+
+static int is_installed(App *a) {
+    if (!a->inst) {
+        char p[64];
+        SceIoStat st;
+        snprintf(p, sizeof(p), "ux0:app/%s/eboot.bin", a->titleid);
+        a->inst = a->titleid[0] && sceIoGetstat(p, &st) >= 0 ? 2 : 1;
+    }
+    return a->inst == 2;
+}
+
+static void draw_icon(App *a, float x, float y, float s) {
+    icon_of(a);                                       /* makes sure it is on the card */
+    if (a->icon_state == 2) {
+        char path[256];
+        snprintf(path, sizeof(path), DIR "/icons/%s", a->icon);
+        draw_app_icon(path, x, y, s, a->name, 0);
+    } else if (a->icon_state == 3 || !a->icon[0]) draw_app_icon("", x, y, s, a->name, 0);
+    else { draw_round_rect(x, y, s, s, s * 0.22f, RGBA8(36, 41, 56, 255)); draw_shimmer(x + s * 0.1f, y, s * 0.8f, s); }
+}
+
+/* The k-th screenshot, once the worker has it on the card (asks for it if not). */
+static vita2d_texture *shot_of(App *a, int k) {
+    if (!a->screenshots[0]) return NULL;
+    if (a->shots_state == 0 && shot_want < 0) { a->shots_state = 1; shot_want = (int)(a - apps); kick(); }
+    if (a->shots_state != 2) return NULL;
+    const char *s = a->screenshots;
+    for (int i = 0; i < k && s; ++i) { s = strchr(s, ';'); if (s) ++s; }
+    if (!s || !*s) return NULL;
+    const char *end = strchr(s, ';');
+    char one[200], path[256];
+    snprintf(one, sizeof(one), "%.*s", end ? (int)(end - s) : (int)strlen(s), s);
+    const char *base = strrchr(one, '/') ? strrchr(one, '/') + 1 : one;
+    snprintf(path, sizeof(path), DIR "/shots/%s", base);
+    SceIoStat st;
+    if (sceIoGetstat(path, &st) < 0) return NULL;
+    return ui_image(path);
+}
+
+static void open_detail(int app) { cur = app; detail = 1; job_stage = 0; }
+
 void store_leave(void) { if (installing < 0) { detail = 0; job_stage = 0; } chips = 0; }
 
 const char *store_hint(void) {
     if (detail) return installing >= 0 ? "Installing\xE2\x80\xA6" : "X install    O back";
-    if (chips) return "<- -> category    X back to the apps    L R tabs";
-    return sort_new ? "X details  UP category  /\\ sort: newest  [] refresh  O queue  L R tabs"
-                    : "X details  UP category  /\\ sort: popular  [] refresh  O queue  L R tabs";
+    if (chips) return "\xE2\x86\x90 \xE2\x86\x92  section    X back to the apps    L R tabs";
+    if (cat == C_FORYOU) return "X details    \xE2\x86\x91 \xE2\x86\x93 rows    [] refresh    O downloads    L R tabs";
+    if (cat == C_TOP) return "X details    [] refresh    O downloads    L R tabs";
+    return sort_new ? "X details    /\\ sort: newest    [] refresh    O downloads    L R tabs"
+                    : "X details    /\\ sort: popular    [] refresh    O downloads    L R tabs";
+}
+
+/* The detail page, laid out like a phone store's: who made it, the numbers,
+ * one big Install button, what it is, and pictures of it. */
+static int detail_page(const Input *in, unsigned int p) {
+    App *a = &apps[cur];
+    int installed = is_installed(a);
+    if (in->tapped && installing < 0 && in->tap_x >= 40 && in->tap_x < 460 && in->tap_y >= 250 && in->tap_y < 294) p |= SCE_CTRL_CROSS;
+    if (p & SCE_CTRL_CIRCLE && installing < 0) { detail = 0; job_stage = 0; return 1; }
+    if (p & SCE_CTRL_CROSS && installing < 0 && job_stage != 4) {
+        int is_vpk = strlen(a->url) > 4 && !strcasecmp(a->url + strlen(a->url) - 4, ".vpk");
+        if (denied(a)) ui_message("Not installing this one", "It wedged the shell on this Vita before (2026-09-19).");
+        else if (!is_vpk) ui_message("Not a VPK", "This one downloads as an archive; install it by hand.");
+        else {
+            char msg[300];
+            snprintf(msg, sizeof(msg), "%s %s %s (%.1f MB)?%s", installed ? "Reinstall" : "Install", a->name, a->version,
+                     atoi(a->size) / 1048576.0f, a->data[0] ? " It also needs data files that are not installed automatically." : "");
+            if (ui_confirm(installed ? "Reinstall" : "Install", msg)) { installing = cur; job_stage = 1; job_msg[0] = 0; kick(); }
+        }
+    }
+    if (job_stage == 4) a->inst = 2;
+    vita2d_draw_rectangle(0, 65, W, H - 105, RGBA8(21, 24, 33, 240));
+    ui_theme_from(icon_of(a));
+
+    /* left: name, maker, numbers, Install, about */
+    draw_icon(a, 40, 84, 96);
+    text_fit(bold, 152, 114, C_TEXT, 24, a->name, 310);
+    text_fit(bold, 152, 139, C_ACCENT, 15, a->author, 310);
+    char meta[96];
+    snprintf(meta, sizeof(meta), "%s  \xC2\xB7  %s", type_name(a), a->version);
+    text_fit(font, 152, 160, C_DIM, 13, meta, 310);
+    char dl[16], mb[16];
+    short_count(a->downloads, dl, sizeof(dl));
+    snprintf(mb, sizeof(mb), "%.1f MB", atoi(a->size) / 1048576.0f);
+    const char *big[3] = {dl, mb, type_name(a)}, *small[3] = {"downloads", "size", "category"};
+    for (int k = 0; k < 3; ++k) {
+        int cx = 40 + 70 + k * 140;
+        if (k) vita2d_draw_rectangle(40 + k * 140, 204, 1, 30, RGBA8(255, 255, 255, 30));
+        int tw = text_w(bold, 16, big[k]);
+        text(bold, cx - tw / 2, 218, C_TEXT, 16, big[k]);
+        tw = text_w(font, 12, small[k]);
+        text(font, cx - tw / 2, 236, C_FAINT, 12, small[k]);
+    }
+    int by = 250;
+    if (installing >= 0 || (job_stage && job_stage != 4)) {
+        text(font, 40, by + 20, job_stage == 9 ? C_BAD : C_TEXT, 16, job_msg);
+        if (job_stage >= 1 && job_stage <= 3) draw_bar(40, by + 32, 420, 5, job_stage == 3 ? ui_pulse() : job_frac, C_ACCENT);
+    } else if (denied(a)) {
+        draw_action_button(40, by, 420, 44, "Blocked on this Vita", 1, C_BAD);
+    } else if (installed || job_stage == 4) {
+        draw_round_rect(40, by, 420, 44, 22, RGBA8(255, 255, 255, 22));
+        draw_hints_centered(250, by + 22, job_stage == 4 ? "Installed: it is first in Apps" : "Installed    X reinstall", C_TEXT);
+    } else {
+        draw_focus_r(40, by, 420, 44, 1, 22);
+        draw_action_button(40, by, 420, 44, "X Install", 1, RGBA8(52, 168, 83, 255));
+    }
+    int y = 324;
+    text(bold, 40, y, C_TEXT, 17, "About this app");
+    y += 10;
+    if (a->requirements[0]) { text_fit(font, 40, y + 16, C_MARK, 13, a->requirements, 420); y += 22; }
+    if (a->data[0]) { text(font, 40, y + 16, C_MARK, 13, "Also needs data files (not installed automatically)."); y += 22; }
+    draw_wrapped_text(a->long_description[0] ? a->long_description : a->description, 40, y + 10, 420, 14, installed ? 8 : 8, C_DIM);
+
+    /* right: the screenshots */
+    vita2d_texture *s0 = shot_of(a, 0);
+    if (s0) {
+        draw_round_texture(s0, 500, 84, 420, 238, 14, 0xFFFFFFFF);
+        for (int k = 1; k < 3; ++k) {
+            vita2d_texture *s = shot_of(a, k);
+            if (s) draw_round_texture(s, 500 + (k - 1) * 215, 334, 205, 116, 10, 0xFFFFFFFF);
+        }
+    } else if (a->screenshots[0]) {
+        draw_round_rect(500, 84, 420, 238, 14, RGBA8(36, 41, 56, 255));
+        draw_shimmer(520, 84, 380, 238);
+    } else {
+        draw_round_rect(500, 84, 420, 238, 14, RGBA8(255, 255, 255, 10));
+        draw_icon(a, 500 + 210 - 48, 84 + 119 - 48, 96);
+        text_right(font, 910, 310, C_FAINT, 12, "No screenshots yet");
+    }
+    return 1;
+}
+
+/* One small app card: icon, name, kind and downloads. */
+static void card(App *a, float x, float y, int on) {
+    if (on) draw_focus_r(x, y, 100, 100, 1, 22);
+    draw_icon(a, x, y, 100);
+    text_fit(on ? bold : font, (int)x, (int)y + 120, on ? C_TEXT : C_DIM, 14, a->name, 122);
+    char sub[48], dl[16];
+    short_count(a->downloads, dl, sizeof(dl));
+    snprintf(sub, sizeof(sub), is_installed(a) ? "Installed" : "%s  \xC2\xB7  %s \xE2\x86\x93", type_name(a), dl);
+    text_fit(font, (int)x, (int)y + 138, is_installed(a) ? C_OK : C_FAINT, 12, sub, 122);
+}
+
+#define BANNER_H 176
+#define ROW_H 196
+static float row_y(int r) { return r == 0 ? 0 : BANNER_H + 14 + (r - 1) * ROW_H; }
+
+static void for_you(const Input *in, unsigned int p) {
+    if (!chips) {
+        if (p & SCE_CTRL_DOWN) { int r = rrow + 1; while (r < NROWS && !nrow[r]) r++; if (r < NROWS) rrow = r; }
+        if (p & SCE_CTRL_UP) { if (rrow == 0) chips = 1; else { int r = rrow - 1; while (r > 0 && !nrow[r]) r--; rrow = r; } }
+        if (p & SCE_CTRL_LEFT && rcol[rrow] > 0) rcol[rrow]--;
+        if (p & SCE_CTRL_RIGHT && rcol[rrow] < nrow[rrow] - 1) rcol[rrow]++;
+        if (p & SCE_CTRL_CROSS && nrow[rrow]) open_detail(rows[rrow][rcol[rrow]]);
+    }
+    /* vertical: keep the focused row whole; a finger drags the page */
+    static float vt;
+    float area = H - 40 - 120, total = row_y(NROWS - 1) + ROW_H, vmax = total > area ? total - area : 0;
+    float ry = row_y(rrow);
+    if (p & (SCE_CTRL_UP | SCE_CTRL_DOWN)) { if (ry < vt) vt = ry; if (ry + ROW_H > vt + area) vt = ry + ROW_H - area; }
+    static int drag_row = -1;
+    if (in->touching && drag_row < 0 && (in->drag_dx || in->drag_dy)) {
+        drag_row = abs(in->drag_dx) > abs(in->drag_dy) ? 1 : 0;   /* 1: sideways, along a row */
+    }
+    if (!in->touching) drag_row = -1;
+    int touch_r = -1;
+    for (int r = 0; r < NROWS; ++r) { float y = 120 + row_y(r) - vscroll; if (in->ty >= y && in->ty < y + ROW_H) touch_r = r; }
+    if (in->touching && drag_row == 0) vt -= in->drag_dy;
+    if (in->touching && drag_row == 1 && touch_r > 0) {
+        rscroll[touch_r] -= in->drag_dx / 140.0f;
+        if (rscroll[touch_r] < 0) rscroll[touch_r] = 0;
+        if (rscroll[touch_r] > nrow[touch_r] - 5) rscroll[touch_r] = nrow[touch_r] > 5 ? nrow[touch_r] - 5 : 0;
+    }
+    if (vt < 0) vt = 0;
+    if (vt > vmax) vt = vmax;
+    vscroll += (vt - vscroll) * (in->touching ? 1.0f : 0.25f);
+
+    /* the featured banner */
+    if (nrow[0]) {
+        App *f = &apps[rows[0][rcol[0]]];
+        float y = 120 + row_y(0) - vscroll;
+        int on = rrow == 0 && !chips;
+        if (in->tapped && in->tap_y >= y && in->tap_y < y + BANNER_H && in->tap_y > 116) open_detail(rows[0][rcol[0]]);
+        if (on) draw_focus_r(40, y, 880, BANNER_H - 10, 1, 20);
+        draw_round_gradient(40, y, 880, BANNER_H - 10, 20, RGBA8(40, 52, 96, 255), RGBA8(26, 30, 46, 255));
+        vita2d_texture *s = shot_of(f, 0);
+        if (s) draw_round_texture(s, 620, y + 12, 284, 142, 12, 0xFFFFFFFF);
+        draw_icon(f, 64, y + 26, 84);
+        text(bold, 170, (int)y + 40, C_ACCENT, 12, "FEATURED");
+        text_fit(bold, 170, (int)y + 70, C_TEXT, 26, f->name, 420);
+        draw_wrapped_text(f->description, 170, (int)y + 98, 420, 14, 2, C_DIM);
+        char dl[16], line[64];
+        short_count(f->downloads, dl, sizeof(dl));
+        snprintf(line, sizeof(line), "%s  \xC2\xB7  %s downloads", type_name(f), dl);
+        text(font, 170, (int)y + 146, C_FAINT, 13, line);
+        for (int k = 0; k < nrow[0]; ++k)                             /* which of the featured */
+            vita2d_draw_fill_circle(64 + k * 14, y + BANNER_H - 26, k == rcol[0] ? 4 : 3,
+                                    k == rcol[0] ? C_TEXT : RGBA8(255, 255, 255, 60));
+    }
+    /* the rows */
+    for (int r = 1; r < NROWS; ++r) {
+        if (!nrow[r]) continue;
+        float y = 120 + row_y(r) - vscroll;
+        if (y > H - 40 || y + ROW_H < 110) continue;
+        text(bold, 40, (int)y + 24, C_TEXT, 19, row_titles[r]);
+        float target = rcol[r] > 4 ? rcol[r] - 4 : 0;
+        if (!(in->touching && touch_r == r)) rscroll[r] += (target - rscroll[r]) * 0.25f;
+        for (int k = 0; k < nrow[r]; ++k) {
+            float x = 40 + (k - rscroll[r]) * 140;
+            if (x < -120 || x > W) continue;
+            App *a = &apps[rows[r][k]];
+            if (in->tapped && in->tap_x >= x && in->tap_x < x + 124 && in->tap_y >= y + 38 && in->tap_y < y + 186 && in->tap_y > 116)
+                open_detail(rows[r][k]);
+            card(a, x, y + 40, rrow == r && rcol[r] == k && !chips);
+        }
+    }
+}
+
+static void top_charts(const Input *in, unsigned int p) {
+    if (!chips) {
+        if (p & SCE_CTRL_LEFT && sel % 2) sel--;
+        if (p & SCE_CTRL_RIGHT && !(sel % 2) && sel + 1 < nview) sel++;
+        if (p & SCE_CTRL_UP) { if (sel >= 2) sel -= 2; else chips = 1; }
+        if (p & SCE_CTRL_DOWN && sel + 2 < nview) sel += 2;
+        if (p & SCE_CTRL_CROSS && nview) open_detail(view[sel]);
+    }
+    static GridScroll gs;
+    if (!chips) grid_scroll(&gs, &sel, 2, nview, 5, 74, in);
+    if (in->tapped && in->tap_y > 116) {
+        int col = in->tap_x < 480 ? 0 : 1, k = (int)(gs.top + (in->tap_y - 120) / 74.0f) * 2 + col;
+        if (k >= 0 && k < nview) { sel = k; open_detail(view[k]); }
+    }
+    for (int k = 0; k < nview; ++k) {
+        float y = 120 + (k / 2 - gs.top) * 74;
+        if (y < 110 - 74 || y > H - 40) continue;
+        int x = 40 + (k % 2) * 450, on = k == sel && !chips;
+        App *a = &apps[view[k]];
+        if (on) draw_round_rect(x - 10, y - 4, 440, 70, 14, RGBA8(255, 255, 255, 18));
+        char rank[8];
+        snprintf(rank, sizeof(rank), "%d", k + 1);
+        text(bold, x, (int)y + 38, on ? C_TEXT : C_DIM, 17, rank);
+        draw_icon(a, x + 40, y + 4, 54);
+        text_fit(on ? bold : font, x + 108, (int)y + 26, C_TEXT, 16, a->name, 230);
+        char sub[64], mb[16];
+        snprintf(mb, sizeof(mb), "%.1f MB", atoi(a->size) / 1048576.0f);
+        snprintf(sub, sizeof(sub), "%s  \xC2\xB7  %s", type_name(a), mb);
+        text_fit(font, x + 108, (int)y + 46, C_FAINT, 13, sub, 230);
+        if (is_installed(a)) text_right(font, x + 420, (int)y + 36, C_OK, 13, "Installed");
+        else {
+            char dl[16];
+            short_count(a->downloads, dl, sizeof(dl));
+            text_right(bold, x + 420, (int)y + 30, C_TEXT, 15, dl);
+            text_right(font, x + 420, (int)y + 47, C_FAINT, 11, "downloads");
+        }
+    }
+}
+
+static void category_grid(const Input *in, unsigned int p) {
+    if (!chips) {
+        if (p & SCE_CTRL_LEFT) sel = sel > 0 ? sel - 1 : 0;
+        if (p & SCE_CTRL_RIGHT) sel = sel < nview - 1 ? sel + 1 : sel;
+        if (p & SCE_CTRL_UP) { if (sel >= 6) sel -= 6; else chips = 1; }
+        if (p & SCE_CTRL_DOWN) sel = sel + 6 < nview ? sel + 6 : nview - 1;
+        if (p & SCE_CTRL_CROSS && nview) open_detail(view[sel]);
+    }
+    static GridScroll gs;
+    if (!chips) grid_scroll(&gs, &sel, 6, nview, 2, 180, in);
+    if (in->tapped && in->tap_y > 116) {
+        int col = (in->tap_x - 40) / 148, k = (int)(gs.top + (in->tap_y - 124) / 180.0f) * 6 + col;
+        if (col >= 0 && col < 6 && k >= 0 && k < nview) { sel = k; open_detail(view[k]); }
+    }
+    if (grow_sel != sel) { grow_sel = sel; grow = 0; }
+    grow = grow < 1 ? grow + 0.09f : 1;
+    for (int k = 0; k < nview; ++k) {
+        float y = 124 + (k / 6 - gs.top) * 180;
+        if (y < 110 - 180 || y > H - 40) continue;
+        card(&apps[view[k]], 40 + (k % 6) * 148, y, k == sel && !chips);
+    }
 }
 
 int store_update(const Input *in) {
     STAGE("store: update");
     unsigned int p = in->pressed;
     if (spare_ready && installing < 0 && !detail) { iq_tail = iq_head; swap_in(); }
-
-    if (detail) {
-        App *a = &apps[view[sel]];
-        if (in->tapped && installing < 0) {
-            if (in->tap_x >= 190 && in->tap_x < 340 && in->tap_y >= 176 && in->tap_y < 214) p |= SCE_CTRL_CROSS;
-        }
-        if (p & SCE_CTRL_CIRCLE && installing < 0) { detail = 0; job_stage = 0; }
-        if (p & SCE_CTRL_CROSS && installing < 0 && job_stage != 4) {
-            int is_vpk = strlen(a->url) > 4 && !strcasecmp(a->url + strlen(a->url) - 4, ".vpk");
-            if (denied(a)) ui_message("Not installing this one", "It wedged the shell on this Vita before (2026-09-19).");
-            else if (!is_vpk) ui_message("Not a VPK", "This one downloads as an archive; install it by hand.");
-            else {
-                char msg[300];
-                snprintf(msg, sizeof(msg), "Install %s %s (%s KB)?%s", a->name, a->version, a->size[0] ? a->size : "?",
-                         a->data[0] ? " It also needs data files that are not installed automatically." : "");
-                if (ui_confirm("Install", msg)) { installing = view[sel]; job_stage = 1; job_msg[0] = 0; kick(); }
-            }
-        }
-        /* the panel */
-        vita2d_draw_rectangle(0, 65, W, H - 105, RGBA8(21, 24, 33, 235));
-        icon_of(a);
-        if (a->icon_state == 2) {
-            char path[256];
-            snprintf(path, sizeof(path), DIR "/icons/%s", a->icon);
-            draw_app_icon(path, 40, 90, 128, a->name, 0);
-        } else draw_app_icon("", 40, 90, 128, a->name, 0);
-        text_fit(bold, 190, 124, C_TEXT, 26, a->name, W - 230);
-        char meta[200];
-        snprintf(meta, sizeof(meta), "%s   \xC2\xB7   %s   \xC2\xB7   %s   \xC2\xB7   %.1f MB", a->version, a->author, a->date,
-                 atoi(a->size) / 1048576.0f);
-        text_fit(font, 190, 152, C_DIM, 15, meta, W - 230);
-        int by = 176;
-        if (installing >= 0 || job_stage) {
-            text(font, 190, by + 20, job_stage == 9 ? C_BAD : job_stage == 4 ? C_OK : C_TEXT, 16, job_msg);
-            if (job_stage >= 1 && job_stage <= 3) draw_bar(190, by + 30, 400, 5, job_stage == 3 ? ui_pulse() : job_frac, C_ACCENT);
-        } else {
-            draw_focus(190, by, 150, 38, 1);
-            draw_action_button(190, by, 150, 38, denied(a) ? "Blocked" : "X Install", 1, denied(a) ? C_BAD : C_ACCENT);
-        }
-        int y = 250;
-        if (a->requirements[0]) {
-            text(bold, 40, y, C_MARK, 15, "Needs");
-            draw_wrapped_text(a->requirements, 110, y, W - 150, 14, 3, C_TEXT);
-            y += 62;
-        }
-        if (a->data[0]) { text(font, 40, y, C_MARK, 14, "Also needs data files (not installed automatically)."); y += 26; }
-        draw_wrapped_text(a->long_description[0] ? a->long_description : a->description, 40, y + 6, W - 80, 15, 8, C_DIM);
-        return 1;
-    }
+    if (detail) return detail_page(in, p);
 
     if (p & SCE_CTRL_SQUARE) { want_catalog = 1; kick(); ui_toast("Refreshing the store", C_ACCENT); }
     if (catalog_state == 3 && (p & SCE_CTRL_SQUARE)) catalog_state = 1;
-    if (p & SCE_CTRL_TRIANGLE) { sort_new = !sort_new; filter(); sel = 0; ui_toast(sort_new ? "Newest first" : "Most popular first", C_ACCENT); }
-    if (p & SCE_CTRL_CIRCLE) return 0;                              /* back to the queue */
-    if (!nview) {
+    if (p & SCE_CTRL_TRIANGLE && cat >= 2) { sort_new = !sort_new; filter(); ui_toast(sort_new ? "Newest first" : "Most popular first", C_ACCENT); }
+    if (p & SCE_CTRL_CIRCLE) return 0;                              /* to the downloads list */
+    if (!napps) {
         text(font, 40, 150, C_DIM, 18, catalog_state == 3 ? "The store could not be reached. [] tries again." : "Loading the store\xE2\x80\xA6");
         return 1;
     }
-    /* The category chips are a row above the grid: UP from the top row reaches
-     * them, left/right switch category at once, DOWN (or X) goes back. */
+    if (!nrow[1]) build_rows();
+    /* the section chips: UP from the top reaches them, left/right switch, DOWN (or X) goes back */
     if (chips) {
         if (p & SCE_CTRL_LEFT && cat > 0) { cat--; filter(); }
-        if (p & SCE_CTRL_RIGHT && cat < 4) { cat++; filter(); }
+        if (p & SCE_CTRL_RIGHT && cat < NCATS - 1) { cat++; filter(); }
         if (p & (SCE_CTRL_DOWN | SCE_CTRL_CROSS)) chips = 0;
+        p = 0;
+    }
+    Input in2 = *in;
+    int chx = 40;
+    for (int c = 0; c < NCATS; ++c) {                              /* chip taps first */
+        int w = text_w(font, 15, cat_names[c]) + 30;
+        if (in->tapped && in->tap_x >= chx && in->tap_x < chx + w && in->tap_y >= 70 && in->tap_y < 114) { cat = c; filter(); chips = 0; in2.tapped = 0; }
+        chx += w + 10;
+    }
+    if (in2.tapped && in2.tap_y < 116) in2.tapped = 0;
+    if (cat == C_FORYOU) {
+        ui_theme_default();
+        for_you(&in2, p);
     } else {
-        if (p & SCE_CTRL_LEFT) sel = sel > 0 ? sel - 1 : 0;
-        if (p & SCE_CTRL_RIGHT) sel = sel < nview - 1 ? sel + 1 : sel;
-        if (p & SCE_CTRL_UP) { if (sel >= 5) sel -= 5; else chips = 1; }
-        if (p & SCE_CTRL_DOWN) sel = sel + 5 < nview ? sel + 5 : nview - 1;
-        if (p & SCE_CTRL_CROSS) { detail = 1; job_stage = 0; }
+        if (cat == C_TOP) top_charts(&in2, p); else category_grid(&in2, p);
+        ui_theme_from(sel < nview ? icon_of(&apps[view[sel]]) : NULL);
     }
-    if (in->tapped) {                                               /* touch: chips, then tiles */
-        int tx = in->tap_x, ty = in->tap_y, chx = 40;
-        for (int c = 0; c < 5; ++c) {
-            int w = text_w(font, 15, cat_names[c]) + 28;
-            if (tx >= chx && tx < chx + w && ty >= 74 && ty < 110) { cat = c; filter(); chips = 0; }
-            chx += w + 8;
-        }
-        if (ty > 116 && ty < H - 40) {
-            int col = (tx - 40) / 180, k = (int)(top + (ty - 120) / 178.0f) * 5 + col;
-            if (col >= 0 && col < 5 && k >= 0 && k < nview) { chips = 0; if (k == sel) { detail = 1; job_stage = 0; } else sel = k; }
-        }
-    }
-
-
-
-    if (grow_sel != sel) { grow_sel = sel; grow = 0; }
-    grow = grow < 1 ? grow + 0.09f : 1;
-    static GridScroll gs;
-    if (!chips) grid_scroll(&gs, &sel, 5, nview, 2, 178, in);
-    top = gs.top;
-    ui_theme_from(sel < nview ? icon_of(&apps[view[sel]]) : NULL);
-    for (int k = 0; k < nview; ++k) {
-        float y = 120 + (k / 5 - top) * 178;
-        if (y < 110 - 178 || y > H - 40) continue;
-        int x = 40 + (k % 5) * 180;
-        App *a = &apps[view[k]];
-        float lift = k == sel ? ease_back(grow) : 0, size = 104 * (1 + 0.1f * lift);
-        float ix = x + (156 - size) / 2, iy = y + 8 - 5 * lift - (size - 104) / 2;
-        if (k == sel && !chips) draw_focus_r(ix, iy, size, size, lift > 1 ? 1 : lift, size * 0.22f);
-        icon_of(a);                                   /* makes sure it is on the card */
-        if (a->icon_state == 2) {
-            char path[256];
-            snprintf(path, sizeof(path), DIR "/icons/%s", a->icon);
-            draw_app_icon(path, ix, iy, size, a->name, 0);
-        } else if (a->icon_state == 3 || !a->icon[0]) draw_app_icon("", ix, iy, size, a->name, 0);
-        else { draw_round_rect(ix, iy, size, size, size * 0.22f, RGBA8(36, 41, 56, 255)); draw_shimmer(ix + size * 0.1f, iy, size * 0.8f, size); }
-        text_fit(k == sel ? bold : font, x + 4, (int)y + 134, k == sel ? C_TEXT : C_DIM, 15, a->name, 150);
-        text_fit(font, x + 4, (int)y + 152, C_FAINT, 13, a->author, 150);
-    }
-    /* The chips last, on a band of background, so rows scrolled up pass under them. */
+    /* the chips last, on a band of background, so rows scrolled up pass under them */
     draw_gradient(0, 65, W, 52, C_BG, C_BG, C_BG, (C_BG & 0x00FFFFFF) | 0xE0000000);
     int cx = 40;
-    for (int c = 0; c < 5; ++c) {
+    for (int c = 0; c < NCATS; ++c) {
         int w = text_w(font, 15, cat_names[c]) + 30;
         if (chips && c == cat) draw_focus(cx, 78, w, 30, 1);
         draw_round_rect(cx, 78, w, 30, 15, c == cat ? RGBA8(245, 245, 250, 255) : RGBA8(255, 255, 255, 26));
@@ -693,7 +965,7 @@ int store_update(const Input *in) {
         cx += w + 10;
     }
     char count[32];
-    snprintf(count, sizeof(count), "%d apps", nview);
+    snprintf(count, sizeof(count), "%d apps", napps);
     text_right(font, W - 40, 99, C_FAINT, 14, count);
     return 1;
 }

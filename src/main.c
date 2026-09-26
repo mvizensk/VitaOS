@@ -45,7 +45,7 @@
 
 int _newlib_heap_size_user = 96 * 1024 * 1024;   /* the game catalog, curl, file lists */
 
-static const char *const TABS[] = {"Home", "Play", "Movies", "Music", "Apps", "Files", "Downloads", "Settings"};
+static const char *const TABS[] = {"Home", "Play", "Movies", "Music", "Apps", "Files", "Store", "Settings"};
 enum { T_HOME, T_PLAY, T_MOVIES, T_MUSIC, T_APPS, T_FILES, T_DOWNLOADS, T_SETTINGS, NTABS };
 
 /* The PS button. Home locks it with the system's own lock (the one games
