@@ -1,0 +1,5 @@
+build/
+plugin/build/
+*.vpk
+*.suprx
+.DS_Store
