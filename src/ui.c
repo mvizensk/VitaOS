@@ -1031,7 +1031,11 @@ static int draw_button(int b, int x, int cy) {
     return 0;
 }
 
-void draw_footer(const char *hint) {
+void draw_footer(const char *hint) { draw_footer_r(hint, 0); }
+
+/* The footer with `reserve` pixels kept free at its right end (left of the
+ * agent pill); returns where that space starts. */
+int draw_footer_r(const char *hint, int reserve) {
     vita2d_draw_rectangle(0, H - 40, W, 40, C_PANEL);
     vita2d_draw_rectangle(0, H - 40, W, 1, C_LINE);
     int right_edge = W - 20;
@@ -1043,7 +1047,9 @@ void draw_footer(const char *hint) {
         text(bold, px + 23, H - 15, RGBA8(251, 191, 36, 255), 13, msg);
         right_edge = px - 12;
     }
+    right_edge -= reserve;
     draw_hints(26, H - 20, hint, C_DIM, right_edge - 40);
+    return right_edge;
 }
 
 /* A hint string drawn with the console's buttons, from x, centred on cy.

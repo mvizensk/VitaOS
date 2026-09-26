@@ -41,6 +41,7 @@ static float pos, grow;
 static int back_prev = -1;                  /* the item whose art we are fading away from */
 static float back_mix = 1, drift;
 static int last_sel = -1;
+static int swiping;                                 /* a finger is dragging the row */
 
 static void add_movie(void) {
     static char meta[48];
@@ -240,6 +241,19 @@ void hometab_update(const Input *in) {
             sel = i;
         }
     }
+    /* A swipe along the row scrolls it; letting go picks the tile that is now
+     * where the focused one was (playtest 2026-09-25: it would not swipe). */
+    if (in->touching && in->drag_dx && in->ty > ROW_Y - 20 && in->ty < ROW_Y + TILE + 30) swiping = 1;
+    if (swiping) {
+        pos -= in->drag_dx / (float)(TILE + GAP);
+        if (pos < -0.5f) pos = -0.5f;
+        if (pos > nitems - 0.5f) pos = nitems - 0.5f;
+        if (!in->touching) {
+            int t0 = sel > 2 ? sel - 2 : 0, ns = (int)(pos + 0.5f) + (sel - t0);
+            sel = ns < 0 ? 0 : ns >= nitems ? nitems - 1 : ns;
+            swiping = 0;
+        }
+    }
     if (in->pressed & SCE_CTRL_CROSS) goto act;
     goto draw;
 act: {
@@ -264,7 +278,7 @@ draw:
     grow = grow < 1 ? grow + 0.08f : 1;
     /* Keep the focused tile near the left, like a console home row. */
     float target = sel > 2 ? sel - 2 : 0;
-    pos += (target - pos) * 0.2f;
+    if (!swiping) pos += (target - pos) * 0.2f;
 
     Item *it = &items[sel];
     ui_theme_from(it->tile);

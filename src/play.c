@@ -811,6 +811,7 @@ static float sys_pos, game_pos = 0;
  * the collections (Continue, Favourites, Multiplayer, Search, genres,
  * decades). The carousel shows one group; sys_pos counts places within it. */
 static int group, chips_focus, group_sys[2] = {-1, -1};
+#define CHIP_Y 434                                    /* the chips sit under the carousel (playtest: balance) */
 static int is_console(int i) { return i >= first_real && i < last_real; }
 static int in_group(int i) { return group == 0 ? is_console(i) : !is_console(i); }
 static int ord_of(int i) { int n = 0; for (int k = 0; k < i; ++k) n += in_group(k); return n; }
@@ -1223,8 +1224,12 @@ void play_frame(const Input *in) {
                 if (sel >= S->count) sel = S->count - 1;
             }
         } else if (view == 0) {           /* tap a system card */
-            if (t_y < 112) {                                   /* the Consoles / Collections chips */
-                set_group(t_x < 40 + 124 ? 0 : 1);
+            int w0 = uifont_width(font, 15, "Consoles") + 30, w1 = uifont_width(font, 15, "Collections") + 30;
+            if (t_y >= CHIP_Y - 10 && t_y < CHIP_Y + 40 && t_x < 40 + w0 + 10 + w1) {   /* the Consoles / Collections chips */
+                set_group(t_x < 40 + w0 + 5 ? 0 : 1);
+                chips_focus = 0;
+            } else if (t_y >= CHIP_Y - 10) {
+                /* under the carousel, off the chips: not a card */
             } else {
                 int n = at_ord((int)(sys_pos + (t_x - W / 2) / 280.0f + 0.5f));
                 if (n >= 0 && n < nsys) {
@@ -1435,7 +1440,6 @@ void play_frame(const Input *in) {
             /* The two ways in, as chips; then every name in this group, so all
              * the consoles are visible at once (the playtest asked for that). */
             const char *gname[2] = {"Consoles", "Collections"};
-            const int CHIP_Y = 434;                        /* in the space under the carousel (playtest: balance) */
             int chx = 40;
             for (int g = 0; g < 2; ++g) {
                 int w = uifont_width(font, 15, gname[g]) + 30;

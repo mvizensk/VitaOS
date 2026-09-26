@@ -558,7 +558,7 @@ int main(void) {
 
     if (cold && !boot_video_played) for (int f = 0; f <= 18; ++f) splash(1, f / 18.0f);   /* fade out */
     /* Back to the tab you last used (Home the first time). */
-    int tab = T_HOME;
+    int tab = T_HOME, open_music = 0;
     SceUID lt = sceIoOpen(LAST_TAB, SCE_O_RDONLY, 0);
     if (lt >= 0) {
         char b[4] = {0};
@@ -609,6 +609,7 @@ int main(void) {
             int t = header_tab_at(in.tap_x, in.tap_y, TABS, NTABS);
             if (t >= 0) { tab = t; in.tapped = 0; }
         }
+        if (open_music) { tab = T_MUSIC; open_music = 0; }   /* the footer player's title was tapped */
         /* UI sounds, from the input itself: every screen gets them. Not in the
          * movie player, where the buttons are transport controls. */
         static float fade;                       /* the new tab's content fades in */
@@ -666,11 +667,14 @@ int main(void) {
             vita2d_draw_rectangle(0, 65, W, H - 105, RGBA8(21, 24, 33, (int)(fade * 255)));
             fade *= 0.72f;                        /* ~150 ms, eased out */
         } else fade = 0;
-        if (!*context) context = music_now();   /* what is playing, on every other tab */
+        /* What is playing gets a small player in the bottom bar on every other
+         * tab: previous, play or pause, next, and the title opens Now Playing. */
+        int bar = tab != T_MUSIC && *music_now();
         if (!(tab == T_PLAY && play_fullscreen()) && !(tab == T_MOVIES && movies_fullscreen()) &&
             !(tab == T_APPS && camera_fullscreen())) {
             draw_header(TABS, NTABS, tab, context);
-            draw_footer(hint);
+            int rx = draw_footer_r(hint, bar ? 330 : 0);
+            if (bar && music_bar(&in, rx + 8, 318)) open_music = 1;
         }
         STAGE("chrome");
         draw_banner();

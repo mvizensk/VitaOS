@@ -66,6 +66,7 @@ void human_size(unsigned long long n, char *out, int max);
 /* context: a short line for the current screen, shown before the clock. */
 void draw_header(const char *const tabs[], int ntabs, int active, const char *context);
 void draw_footer(const char *hint);
+int draw_footer_r(const char *hint, int reserve);   /* keeps `reserve` px free at the right; returns its x */
 int draw_hints(int x, int cy, const char *hint, unsigned int color, int max_x);   /* "X play  O back" with button glyphs */
 int hints_width(const char *hint);
 void draw_hints_centered(int cx, int cy, const char *hint, unsigned int color);

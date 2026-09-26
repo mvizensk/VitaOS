@@ -12,5 +12,7 @@ void music_prewarm(void);             /* background thread, at start-up */
 /* Home tab: the last album (0 if none yet), and picking it up / pausing it. */
 int music_last_item(const char **album, const char **artist, vita2d_texture **art, int *now_playing);
 void music_resume(void);
+/* The bottom bar's player on other tabs, in [x, x + w]; 1 = open Now Playing. */
+int music_bar(const Input *in, int x, int w);
 
 #endif

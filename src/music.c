@@ -658,6 +658,31 @@ static void mini_player(const Input *in) {
     icon(music_playing() && !video_paused() ? I_PAUSE : I_PLAY, W - 60, y + 32, 20, C_TEXT);
 }
 
+/* The footer's player, on every other tab: cover, title, previous, play or
+ * pause, next, in [x, x + w] of the bottom bar. Returns 1 when the title was
+ * tapped, to open Now Playing (playtest 2026-09-25). */
+int music_bar(const Input *in, int x, int w) {
+    if (playing < 0 || !music_playing()) return 0;
+    const Track *t = &tracks[playing];
+    int cy = H - 20, bx = x + w - 18;
+    if (in->tapped && in->tap_y >= H - 40) {
+        if (in->tap_x >= bx - 17 && in->tap_x < x + w) advance(1, 1);
+        else if (in->tap_x >= bx - 51 && in->tap_x < bx - 17) video_pause(!video_paused());
+        else if (in->tap_x >= bx - 85 && in->tap_x < bx - 51) advance(-1, 1);
+        else if (in->tap_x >= x && in->tap_x < bx - 85) { now_open = 1; return 1; }
+    }
+    draw_round_rect(x - 6, H - 36, w + 6, 32, 10, RGBA8(255, 255, 255, 14));
+    unsigned int pos = video_pos_ms(), dur = t->dur ? t->dur : video_duration_ms();
+    if (dur) vita2d_draw_rectangle(x + 4, H - 6, (w - 14) * (float)pos / dur, 2, C_ACCENT);
+    draw_cover(t, x, H - 33, 26, 1);
+    text_fit(bold, x + 34, cy - 2, C_TEXT, 13, t->title, w - 34 - 100);
+    text_fit(font, x + 34, cy + 11, C_DIM, 11, t->artist, w - 34 - 100);
+    icon(I_PREV, bx - 68, cy, 8, C_TEXT);
+    icon(music_playing() && !video_paused() ? I_PAUSE : I_PLAY, bx - 34, cy, 9, C_TEXT);
+    icon(I_NEXT, bx, cy, 8, C_TEXT);
+    return 0;
+}
+
 /* ---------- the Home section ---------- */
 
 static void home_section(const Input *in) {
@@ -676,7 +701,23 @@ static void home_section(const Input *in) {
     int act = (p & SCE_CTRL_CROSS) != 0;
     if (p & SCE_CTRL_TRIANGLE && home_row == 1 && counts[1]) toggle_like(recent[*col]);
 
-    float y = TOP_Y;
+    /* The page scrolls: the rows run past the mini player (playtest
+     * 2026-09-25: it would not scroll down). D-pad rows ease it; a swipe moves it. */
+    static float vs, vt;
+    int nrows = 0;
+    for (int r = 1; r <= 2; ++r) if (counts[r]) nrows++;
+    float bottom = H - 40 - (playing >= 0 ? 64 : 0) - 8, content = TOP_Y + 104 + nrows * 180;
+    float vmax = content > bottom ? content - bottom : 0;
+    if (p & (SCE_CTRL_UP | SCE_CTRL_DOWN)) vt = home_row == 0 ? 0 : home_row == 1 ? vmax * (counts[2] ? 0.5f : 1) : vmax;
+    if (in->touching && in->drag_dy) vt = vs - in->drag_dy;
+    Input below = *in;                                 /* a tap on the mini player is not a tap on a row under it */
+    if (below.tapped && below.tap_y >= bottom) below.tapped = 0;
+    in = &below;
+    if (vt < 0) vt = 0;
+    if (vt > vmax) vt = vmax;
+    vs += (vt - vs) * (in->touching ? 1.0f : 0.25f);
+
+    float y = TOP_Y - vs;
     const char *cards[3] = {"Liked songs", "Shuffle all", "All songs"};
     char subs[3][48];
     snprintf(subs[0], sizeof(subs[0]), "%d song%s", nliked, nliked == 1 ? "" : "s");
