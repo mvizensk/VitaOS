@@ -20,7 +20,8 @@ static const Step tour[] = {
     {PRESS, SCE_CTRL_LEFT}, {WAIT, 20}, {PRESS, SCE_CTRL_LEFT}, {WAIT, 40},
     TAB(139), {WAIT, 90},                                            /* Play: the consoles */
     {PRESS, SCE_CTRL_RIGHT}, {WAIT, 50}, {PRESS, SCE_CTRL_RIGHT}, {WAIT, 50},
-    {PRESS, SCE_CTRL_RIGHT}, {WAIT, 50}, {PRESS, SCE_CTRL_RIGHT}, {WAIT, 70},
+    {PRESS, SCE_CTRL_RIGHT}, {WAIT, 50}, {PRESS, SCE_CTRL_RIGHT}, {WAIT, 50},
+    {PRESS, SCE_CTRL_RIGHT}, {WAIT, 70},                             /* Genesis: familiar names first */
     {PRESS, SCE_CTRL_CROSS}, {WAIT, 90},                             /* into a console's games */
     {PRESS, SCE_CTRL_RIGHT}, {WAIT, 40}, {PRESS, SCE_CTRL_RIGHT}, {WAIT, 40},
     {PRESS, SCE_CTRL_RIGHT}, {WAIT, 90}, {PRESS, SCE_CTRL_CIRCLE}, {WAIT, 30},
@@ -42,7 +43,7 @@ static const Step tour[] = {
 
 /* The first recording ran through the tour in about 16 s: far too quick to
  * follow. Every wait is stretched by this. */
-#define SLOW 3
+#define SLOW 5
 static int step = -1, wait_left, frame;
 
 int demo_running(void) { return step >= 0; }

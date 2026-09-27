@@ -117,12 +117,27 @@ static void launch_home(const char *home) {
     }
 }
 
+/* 1.2: back to wherever the game was started from. VitaOS marks its own
+ * launches (confirm.req, written just before it launches a game); a game
+ * started from its bubble ends on LiveArea as it always did. With no bridge
+ * to consume the flag, the plugin takes it itself. */
+#define LAUNCH_FLAG "ux0:data/arcadehub/confirm.req"
+static SceUInt64 home_launch_at;
+static int armed_from_home;
+
 static void return_tick(void) {
     char tid[16];
     SceUID pid = -1;
     int home;
+    if (!bridge_loaded() && file_exists(LAUNCH_FLAG)) {
+        home_launch_at = sceKernelGetSystemTimeWide();
+        sceIoRemove(LAUNCH_FLAG);
+    }
     if (running_game(tid, &pid, &home)) {
-        if (sceClibStrncmp(armed, tid, 16)) sceClibMemcpy(armed, tid, sizeof(armed));
+        if (sceClibStrncmp(armed, tid, 16)) {
+            sceClibMemcpy(armed, tid, sizeof(armed));
+            armed_from_home = home_launch_at && sceKernelGetSystemTimeWide() - home_launch_at < 90ull * 1000 * 1000;
+        }
         armed_pid = pid;
         gone_ticks = 0;
         return;
@@ -137,7 +152,7 @@ static void return_tick(void) {
     armed[0] = 0;
     gone_ticks = 0;
     const char *h = home_tid();
-    if (!h || file_exists("ux0:data/arcadehub/return.off") || bridge_loaded()) return;
+    if (!h || !armed_from_home || file_exists("ux0:data/arcadehub/return.off") || bridge_loaded()) return;
     launch_home(h);
 }
 

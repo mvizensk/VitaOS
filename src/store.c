@@ -94,6 +94,11 @@ static char *jstring(char **p) {                     /* at the opening quote; un
     return s;
 }
 
+/* Checking an app reads the card (a stat, and its param.sfo when installed):
+ * a screenful of new cards froze Home for 300 ms (2026-09-26). A few per
+ * frame; the rest show plain until their turn, a frame or two later. */
+static int inst_budget = 3;
+
 static int by_date(const void *a, const void *b) {
     return strcmp(apps[*(const int *)b].date, apps[*(const int *)a].date);    /* newest first */
 }
@@ -141,7 +146,7 @@ static void build_rows(void) {
 static void filter(void) {
     nview = 0;
     for (int i = 0; i < napps; ++i) {
-        if (cat == C_UPDATES) { if (has_update(&apps[i])) view[nview++] = i; continue; }
+        if (cat == C_UPDATES) { inst_budget = 1; if (has_update(&apps[i])) view[nview++] = i; continue; }   /* opening Updates checks them all */
         if (!cat_types[cat] || !strcmp(apps[i].type, cat_types[cat])) view[nview++] = i;
     }
     qsort(view, nview, sizeof(int), sort_new && cat >= 2 ? by_date : by_popular);
@@ -682,7 +687,8 @@ static const char *type_name(const App *a) {
  * but behind the catalogue. The APP_VER read only happens for apps that are
  * actually on the Vita, and only once (cached here like the install check). */
 static int is_installed(App *a) {
-    if (!a->inst) {
+    if (!a->inst && inst_budget > 0) {
+        --inst_budget;
         char dir[48], p[64], ver[16];
         SceIoStat st;
         snprintf(dir, sizeof(dir), "ux0:app/%s", a->titleid);
@@ -1000,6 +1006,7 @@ static void category_grid(const Input *in, unsigned int p) {
 
 int store_update(const Input *in) {
     STAGE("store: update");
+    inst_budget = 3;
     unsigned int p = in->pressed;
     if (spare_ready && installing < 0 && !detail) { iq_tail = iq_head; swap_in(); }
     if (detail) return detail_page(in, p);

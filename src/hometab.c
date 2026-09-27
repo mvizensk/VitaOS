@@ -253,11 +253,17 @@ static void week_big(void) {
     text(font, 48, y + 12, C_DIM, 16, sline);
 }
 
+/* Where the news sits is decided once, when it first arrives: moving it the
+ * moment it was read shifted every tile under the cursor (playtest
+ * 2026-09-26: "it jumps around the home menu squares"). */
+static int news_lead = -1;
+
 static void gather(void) {
     STAGE("home: gather");
     nitems = 0;
     static char played_txt[8][32];
-    if (news_unseen()) add_news();
+    if (news_lead < 0 && news_count()) news_lead = news_unseen();
+    if (news_lead == 1) add_news();
     int ngames = play_recent_count();
     for (int i = 0; i < ngames && nitems < MAX_ITEMS; ++i) {
         if (i == 1) { add_movie(); add_music(); }
@@ -269,7 +275,7 @@ static void gather(void) {
                                  g.cover, snap ? snap : g.art, g.accent, snap != NULL};
     }
     if (ngames < 2) { add_movie(); add_music(); }
-    if (!news_unseen()) {                             /* read already: after the first item */
+    if (news_lead == 0) {                             /* read already: after the first item */
         int before = nitems;
         add_news();
         int added = nitems - before;

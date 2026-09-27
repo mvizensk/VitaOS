@@ -770,6 +770,7 @@ static int settle = 0, last_key = -1;          /* frames since the selection cha
 static char playing[256] = {0};
 static int pre_sys, pre_sel, pre_view;
 static int idle = 0, attract = 0, attract_frames = 0, a_sys = 0, a_sel = 0;
+int play_wake(void);
 /* touch: drag the strip / carousel, tap to pick */
 static int touching = 0, t_x0 = 0, t_y0 = 0, t_moved = 0, tap_play = 0, t_frames = 0, t_x = 0, t_y = 0;
 static float drag_base = 0;
@@ -1099,11 +1100,9 @@ void play_frame(const Input *in) {
     hint_override = NULL;
     if (pressed) idle = 0; else idle++;
     if (attract) {
-        if (pressed) {
-            attract = 0; idle = 0;
-            sys = a_sys; sel = a_sel; game_sel[sys] = sel; view = 1; game_pos = sel;
-            if (pressed & SCE_CTRL_CROSS) pressed = SCE_CTRL_CROSS; /* play it now */
-            else pressed = 0;
+        if (pressed) {                /* any button: back to exactly where you were (playtest 2026-09-26) */
+            play_wake();
+            pressed = 0;              /* the press only wakes it */
         }
     } else if (idle > 60 * 30 && nsys && video_owner() != OWN_MUSIC) {
         attract = 1; attract_frames = 0;
@@ -1156,7 +1155,7 @@ void play_frame(const Input *in) {
          * much it wobbled on the way. */
         int travel = (t_x - t_x0) * (t_x - t_x0) + (t_y - t_y0) * (t_y - t_y0);
         if (t_frames < 20 && travel < 40 * 40) t_moved = 0;
-        if (attract) { attract = 0; sys = a_sys; sel = a_sel; view = 1; game_pos = sel; }
+        if (attract) play_wake();                            /* a tap only wakes it, too */
         else if (t_moved) {
             if (view == 0) {
                 int n = (int)(sys_pos + (sys_pos < 0 ? -0.5f : 0.5f)), gs = group_size();
