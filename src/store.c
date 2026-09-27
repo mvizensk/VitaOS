@@ -586,7 +586,7 @@ static int worker(SceSize args, void *argp) {
                 }
             }
             iq_tail++;
-            if (installing >= 0) break;
+            if (installing >= 0 || shot_want >= 0) break;  /* an install, or the open page's pictures, go first */
         }
         sceKernelWaitSema(wake, 1, NULL);
     }
@@ -745,22 +745,37 @@ static int detail_page(const Input *in, unsigned int p) {
     }
     int y = 324;
     text(bold, 40, y, C_TEXT, 17, "About this app");
-    y += 10;
-    if (a->requirements[0]) { text_fit(font, 40, y + 16, C_MARK, 13, a->requirements, 420); y += 22; }
-    if (a->data[0]) { text(font, 40, y + 16, C_MARK, 13, "Also needs data files (not installed automatically)."); y += 22; }
-    draw_wrapped_text(a->long_description[0] ? a->long_description : a->description, 40, y + 10, 420, 14, installed ? 8 : 8, C_DIM);
+    y += 22;
+    draw_wrapped_text(a->long_description[0] ? a->long_description : a->description, 40, y, 420, 14, 4, C_DIM);
+    y += 4 * 18 + 6;
+    /* What else it needs, one line each (the catalogue writes them as "- x\n- y") */
+    if (a->requirements[0] || a->data[0]) {
+        text(bold, 500, 344, C_MARK, 14, "Also needs");
+        int ny = 366, lines = 0;
+        const char *s = a->requirements;
+        while (*s && lines < 5) {
+            const char *e = strchr(s, '\n');
+            int n = e ? (int)(e - s) : (int)strlen(s);
+            char line[160];
+            snprintf(line, sizeof(line), "%.*s", n < 159 ? n : 159, s);
+            if (line[0]) { text_fit(font, 500, ny, C_TEXT, 13, line, 420); ny += 19; lines++; }
+            s = e ? e + 1 : s + n;
+        }
+        if (a->data[0] && lines < 6) text_fit(font, 500, ny, C_DIM, 13, "Data files: not installed automatically", 420);
+    }
 
     /* right: the screenshots */
+    int needs = a->requirements[0] || a->data[0];
     vita2d_texture *s0 = shot_of(a, 0);
     if (s0) {
         draw_round_texture(s0, 500, 84, 420, 238, 14, 0xFFFFFFFF);
-        for (int k = 1; k < 3; ++k) {
+        for (int k = 1; k < 3 && !needs; ++k) {        /* the extra pictures, when nothing else needs the space */
             vita2d_texture *s = shot_of(a, k);
             if (s) draw_round_texture(s, 500 + (k - 1) * 215, 334, 205, 116, 10, 0xFFFFFFFF);
         }
     } else if (a->screenshots[0]) {
-        draw_round_rect(500, 84, 420, 238, 14, RGBA8(36, 41, 56, 255));
-        draw_shimmer(520, 84, 380, 238);
+        draw_round_rect(500, 84, 420, 238, 14, RGBA8(255, 255, 255, 10));
+        text(font, 710 - text_w(font, 14, "Loading screenshots") / 2, 208, C_FAINT, 14, "Loading screenshots");
     } else {
         draw_round_rect(500, 84, 420, 238, 14, RGBA8(255, 255, 255, 10));
         draw_icon(a, 500 + 210 - 48, 84 + 119 - 48, 96);
@@ -968,4 +983,44 @@ int store_update(const Input *in) {
     snprintf(count, sizeof(count), "%d apps", napps);
     text_right(font, W - 40, 99, C_FAINT, 14, count);
     return 1;
+}
+
+/* ---------- from elsewhere: news that names a store app ---------- */
+
+static void lower_simple(const char *in, char *out, int max) {
+    int o = 0;
+    for (; *in && o < max - 1; ++in) {
+        char c = *in >= 'A' && *in <= 'Z' ? *in + 32 : *in;
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) out[o++] = c;
+        else if (o && out[o - 1] != ' ') out[o++] = ' ';
+    }
+    while (o && out[o - 1] == ' ') --o;
+    out[o] = 0;
+}
+
+/* The store app a headline is about: the longest app name (without "Vita")
+ * that appears in it as whole words. -1 when none does. */
+int store_match(const char *headline) {
+    char h[256];
+    lower_simple(headline, h + 1, sizeof(h) - 2);
+    h[0] = ' ';
+    strcat(h, " ");
+    int best = -1, best_len = 0;
+    for (int i = 0; i < napps; ++i) {
+        char n[128], k[132];
+        lower_simple(apps[i].name, n, sizeof(n));
+        char *v = strstr(n, " vita");
+        if (v && !v[5]) *v = 0;                         /* "Hollow Knight Vita" -> "hollow knight" */
+        if (!strncmp(n, "vita ", 5)) memmove(n, n + 5, strlen(n + 5) + 1);
+        int len = strlen(n);
+        if (len < 5 || len <= best_len) continue;
+        snprintf(k, sizeof(k), " %s ", n);
+        if (strstr(h, k)) { best = i; best_len = len; }
+    }
+    return best;
+}
+
+void store_show(int app) {
+    if (app < 0 || app >= napps || installing >= 0) return;
+    open_detail(app);
 }

@@ -30,6 +30,7 @@
 #include "camera.h"
 #include "library.h"
 #include "update.h"
+#include "news.h"
 #include "memo.h"
 #include "files.h"
 #include "downloads.h"
@@ -549,6 +550,7 @@ int main(void) {
     if (net >= 0) downloads_init();
     if (net >= 0) weather_init();
     if (net >= 0) update_init();                     /* a newer VitaOS? at most once a day */
+    news_init();                                     /* r/vitahacks for the Home row; waits for Wi-Fi itself */
     SceUID pw = sceKernelCreateThread("home_prewarm", prewarm, 0x10000100, 0x8000, 0, 0, NULL);
     if (pw >= 0) sceKernelStartThread(pw, 0, NULL);
     SceUID wd = sceKernelCreateThread("home_watchdog", watchdog, 0x10000100, 0x2000, 0, 0, NULL);
@@ -653,7 +655,9 @@ int main(void) {
         case T_HOME:
             hometab_update(&in);
             hint = hometab_hint();
-            if (hometab_wants_tab() == HOMETAB_TO_MOVIES) tab = T_MOVIES;   /* the film opened full screen */
+            { int w = hometab_wants_tab();
+              if (w == HOMETAB_TO_MOVIES) tab = T_MOVIES;                     /* the film opened full screen */
+              else if (w == HOMETAB_TO_STORE) tab = T_DOWNLOADS; }            /* a news item's app page */
             break;
         case T_MOVIES: movies_update(&in); hint = movies_hint(); break;
         case T_MUSIC: music_update(&in); hint = music_hint(); break;

@@ -18,10 +18,12 @@
 #include "downloads.h"
 #include "weather.h"
 #include "video.h"
+#include "news.h"
+#include "store.h"
 #include <psp2/rtc.h>
 #include <psp2/power.h>
 
-enum { K_GAME, K_MOVIE, K_MUSIC };
+enum { K_GAME, K_MOVIE, K_MUSIC, K_NEWS };
 typedef struct {
     int kind, index;
     const char *title, *kicker, *meta1, *meta2;
@@ -30,7 +32,8 @@ typedef struct {
     int resume;                               /* art is RetroArch's quick-resume snapshot */
 } Item;
 
-#define MAX_ITEMS 10
+#define MAX_ITEMS 14
+#define MAX_NEWS_TILES 3
 #define TILE 124.0f
 #define ROW_Y 318.0f
 #define GAP 22.0f
@@ -42,6 +45,8 @@ static int back_prev = -1;                  /* the item whose art we are fading 
 static float back_mix = 1, drift;
 static int last_sel = -1;
 static int swiping;                                 /* a finger is dragging the row */
+static int reading = -1;                            /* the news post open in the reader */
+static float read_scroll;
 
 static void add_movie(void) {
     static char meta[48];
@@ -186,9 +191,29 @@ static void widgets(void) {
 }
 
 /* Newest game first, then the film and the album, then the older games. */
+/* Community news: what is new on r/vitahacks, first in the row while it is
+ * unread, after the first item once it has been seen (asked for 2026-09-26:
+ * the news should lead to the Store's newest things). */
+static void add_news(void) {
+    static char ago[MAX_NEWS_TILES][32], by[MAX_NEWS_TILES][64];
+    for (int i = 0; i < news_count() && i < MAX_NEWS_TILES && nitems < MAX_ITEMS; ++i) {
+        const NewsItem *n = news_get(i);
+        unsigned int a = n->age_s;
+        if (a < 3600) snprintf(ago[i], sizeof(ago[i]), "%u min ago", a / 60 ? a / 60 : 1);
+        else if (a < 86400) snprintf(ago[i], sizeof(ago[i]), "%u h ago", a / 3600);
+        else snprintf(ago[i], sizeof(ago[i]), "%u d ago", a / 86400);
+        int app = store_match(n->title);
+        snprintf(by[i], sizeof(by[i]), app >= 0 ? "In the Store now" : "%s", n->author);
+        vita2d_texture *pic = n->image_path[0] ? ui_image(n->image_path) : NULL;   /* the post's own picture */
+        items[nitems++] = (Item){K_NEWS, i, n->title, "COMMUNITY NEWS  \xC2\xB7  r/vitahacks", ago[i], by[i],
+                                 pic, pic, RGBA8(255, 106, 51, 255), 0};
+    }
+}
+
 static void gather(void) {
     STAGE("home: gather");
     nitems = 0;
+    if (news_unseen()) add_news();
     int ngames = play_recent_count();
     for (int i = 0; i < ngames && nitems < MAX_ITEMS; ++i) {
         if (i == 1) { add_movie(); add_music(); }
@@ -199,6 +224,17 @@ static void gather(void) {
                                  g.system, *g.year ? g.year : g.genre, g.cover, snap ? snap : g.art, g.accent, snap != NULL};
     }
     if (ngames < 2) { add_movie(); add_music(); }
+    if (!news_unseen()) {                             /* read already: after the first item */
+        int before = nitems;
+        add_news();
+        int added = nitems - before;
+        if (added && before > 1) {
+            Item tmp[MAX_NEWS_TILES];
+            memcpy(tmp, &items[before], added * sizeof(Item));
+            memmove(&items[1 + added], &items[1], (before - 1) * sizeof(Item));
+            memcpy(&items[1], tmp, added * sizeof(Item));
+        }
+    }
 }
 
 /* Scaled to cover the whole screen, drifting a few pixels (Ken Burns). */
@@ -215,15 +251,68 @@ void hometab_reset(void) { sel = 0; }
 int hometab_wants_tab(void) { int t = want_tab; want_tab = -1; return t; }
 
 const char *hometab_hint(void) {
+    if (reading >= 0) {
+        const NewsItem *n = news_get(reading);
+        return n && store_match(n->title) >= 0 ? "X see it in the Store    \xE2\x86\x91 \xE2\x86\x93 scroll    O back"
+                                               : "\xE2\x86\x91 \xE2\x86\x93 scroll    O back";
+    }
     if (!nitems) return "L R tabs";
     switch (items[sel].kind) {
     case K_MOVIE: return "X resume   <- -> choose   L R tabs";
     case K_MUSIC: return "X play / pause   <- -> choose   L R tabs";
+    case K_NEWS: return "X read   <- -> choose   L R tabs";
     default: return "X play   <- -> choose   L R tabs";
     }
 }
 
+/* The news reader: a full page for one post (asked for 2026-09-26: the old
+ * message box was cramped). O closes it; X opens the app in the Store when
+ * the post names one. */
+
+static void news_reader(const Input *in) {
+    const NewsItem *n = news_get(reading);
+    if (!n) { reading = -1; return; }
+    int app = store_match(n->title);
+    unsigned int p = in->pressed;
+    if (p & SCE_CTRL_CIRCLE) { reading = -1; return; }
+    if (p & SCE_CTRL_CROSS && app >= 0) { store_show(app); want_tab = HOMETAB_TO_STORE; reading = -1; return; }
+    if (p & SCE_CTRL_DOWN) read_scroll += 60;
+    if (p & SCE_CTRL_UP) read_scroll -= 60;
+    if (in->touching && in->drag_dy) read_scroll -= in->drag_dy;
+    if (read_scroll < 0) read_scroll = 0;
+    if (read_scroll > 600) read_scroll = 600;
+
+    vita2d_draw_rectangle(0, 65, W, H - 105, RGBA8(21, 24, 33, 250));
+    vita2d_texture *pic = n->image_path[0] ? ui_image(n->image_path) : NULL;
+    float y = 90 - read_scroll;
+    int tx = 48, tw = pic ? 520 : 864;
+    if (pic) {                                         /* the picture on the right, 16:9-ish */
+        float pw = 340, ph = pw * vita2d_texture_get_height(pic) / vita2d_texture_get_width(pic);
+        if (ph > 380) ph = 380;
+        draw_round_texture(pic, W - 48 - pw, y, pw, ph, 14, 0xFFFFFFFF);
+    }
+    text(bold, tx, (int)y + 14, RGBA8(255, 120, 70, 255), 13, "COMMUNITY NEWS  \xC2\xB7  r/vitahacks");
+    draw_wrapped_text(n->title, tx, (int)y + 44, tw, 24, 4, C_TEXT);
+    int lines = (int)(text_w(bold, 24, n->title) / tw) + 1;
+    if (lines > 4) lines = 4;
+    float by = y + 44 + lines * 30 + 8;
+    char meta[96];
+    unsigned int a = n->age_s;
+    if (a < 3600) snprintf(meta, sizeof(meta), "%s  \xC2\xB7  %u min ago", n->author, a / 60 ? a / 60 : 1);
+    else if (a < 86400) snprintf(meta, sizeof(meta), "%s  \xC2\xB7  %u h ago", n->author, a / 3600);
+    else snprintf(meta, sizeof(meta), "%s  \xC2\xB7  %u d ago", n->author, a / 86400);
+    text(font, tx, (int)by, C_DIM, 15, meta);
+    by += 20;
+    if (app >= 0) {
+        draw_action_button(tx, by, 260, 38, "X See it in the Store", 1, RGBA8(52, 168, 83, 255));
+        by += 54;
+    } else by += 14;
+    draw_wrapped_text(n->summary[0] ? n->summary : "This post is a link or a picture; open r/vitahacks on a phone to see the rest.",
+                      tx, (int)by + 6, tw, 16, 14, C_TEXT);
+}
+
 void hometab_update(const Input *in) {
+    if (reading >= 0) { news_reader(in); if (reading >= 0) return; in = &(Input){0}; }
     gather();
     drift += 0.004f;
     if (!nitems) {
@@ -263,6 +352,9 @@ act: {
         } else if (it->kind == K_MOVIE) {
             want_tab = HOMETAB_TO_MOVIES;
             movies_open(it->index);
+        } else if (it->kind == K_NEWS) {
+            const NewsItem *n = news_get(it->index);
+            if (n) { reading = it->index; read_scroll = 0; }
         } else {
             music_resume();
         }
@@ -290,11 +382,12 @@ draw:
         vita2d_draw_rectangle(k * 50, 64, 50, H - 104, RGBA8(21, 24, 33, 150 - k * 15));
     ui_ambient(0.6f);
 
-    text(bold, 48, 118, it->kind == K_GAME ? (it->accent | 0xFF000000) : C_ACCENT, 14, it->kicker);
-    text_fit(bold, 48, 162, C_TEXT, 36, it->title, 596);
+    text(bold, 48, 118, it->kind == K_GAME || it->kind == K_NEWS ? (it->accent | 0xFF000000) : C_ACCENT, 14, it->kicker);
+    if (it->kind == K_NEWS) { draw_wrapped_text(it->title, 48, 150, 596, 26, 2, C_TEXT); news_mark_seen(); }
+    else text_fit(bold, 48, 162, C_TEXT, 36, it->title, 596);
     char meta[128];
     snprintf(meta, sizeof(meta), "%s%s%s", it->meta1, *it->meta1 && *it->meta2 ? "   \xC2\xB7   " : "", it->meta2);
-    text_fit(font, 48, 194, C_DIM, 18, meta, 596);
+    text_fit(font, 48, it->kind == K_NEWS ? 222 : 194, C_DIM, 18, meta, 596);
     widgets();
 
     for (int i = 0; i < nitems; ++i) {
@@ -305,7 +398,10 @@ draw:
         if (i == sel) draw_focus(tx, ty, size, size, lift > 1 ? 1 : lift);
         Item *t = &items[i];
         float rr = ui_corner(size, size);                      /* the same corners as the focus ring */
-        if (t->tile) draw_round_cover(t->tile, tx, ty, size, rr, RGBA8(255, 255, 255, i == sel ? 255 : 200));
+        if (t->kind == K_NEWS && !t->tile) {                    /* no picture: an orange card with the headline */
+            draw_round_gradient(tx, ty, size, size, rr, RGBA8(255, 106, 51, 255), RGBA8(196, 44, 90, 255));
+            draw_wrapped_text(t->title, (int)tx + 12, (int)ty + 24, (int)size - 22, 13, 4, RGBA8(255, 255, 255, 255));
+        } else if (t->tile) draw_round_cover(t->tile, tx, ty, size, rr, RGBA8(255, 255, 255, i == sel ? 255 : 200));
         else {
             draw_round_rect(tx, ty, size, size, rr, RGBA8(34, 40, 56, 255));
             text_fit(bold, (int)tx + 10, (int)(ty + size / 2), C_TEXT, 15, t->title, (int)size - 20);
@@ -316,10 +412,11 @@ draw:
             draw_round_rect(tx + size - sw - 8, ty + size - sh - 8, sw + 4, sh + 4, 7, RGBA8(236, 239, 244, 230));
             draw_round_texture(t->art, tx + size - sw - 6, ty + size - sh - 6, sw, sh, 5, RGBA8(255, 255, 255, 255));
         }
-        if (t->kind != K_GAME) {                               /* a small badge: film or music */
+        if (t->kind != K_GAME) {                               /* a small badge: film, music or news */
             draw_round_rect(tx + 8, ty + size - 30, 58, 22, 11, RGBA8(21, 24, 33, 210));   /* a pill, inside the corner */
-            text(bold, (int)tx + 17, (int)(ty + size - 14), t->kind == K_MOVIE ? C_ACCENT : C_OK, 12,
-                 t->kind == K_MOVIE ? "FILM" : "MUSIC");
+            text(bold, (int)tx + 17, (int)(ty + size - 14),
+                 t->kind == K_MOVIE ? C_ACCENT : t->kind == K_NEWS ? RGBA8(255, 120, 70, 255) : C_OK, 12,
+                 t->kind == K_MOVIE ? "FILM" : t->kind == K_NEWS ? "NEWS" : "MUSIC");
         }
         if (i == sel) text_fit(bold, (int)tx, (int)(ROW_Y + TILE + 34), C_TEXT, 16, t->title, 300);
     }
