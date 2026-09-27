@@ -12,6 +12,8 @@
 #include <psp2/registrymgr.h>
 #include <psp2/io/devctl.h>
 #include <psp2/io/dirent.h>
+#include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
 #include <psp2/kernel/processmgr.h>
@@ -350,12 +352,27 @@ void settings_update(const Input *in) {
         if (focus == F_BUBBLES && release_ps) release_ps();
         if (focus == F_WEATHER) weather_pick();
         if (focus == F_THEME) theme_pick();
-        static char get_label[40];
-        const char *vitaos_items[4] = {"Find games again", "Download box art", "About VitaOS", get_label};
+        static char get_label[40], boot_label[48];
+        /* Start at boot: the PS plugin (1.3) opens VitaOS after power-on
+         * unless user/boot.off is there (asked for 2026-09-27). */
+        SceIoStat bst;
+        int boot_on = sceIoGetstat("ux0:data/arcadehub/user/boot.off", &bst) < 0;
+        snprintf(boot_label, sizeof(boot_label), "Start at boot: %s", boot_on ? "On" : "Off");
+        const char *vitaos_items[5] = {"Find games again", "Download box art", "About VitaOS", boot_label, get_label};
         const char *newer = update_newer();
         if (newer) snprintf(get_label, sizeof(get_label), "Get VitaOS %s", newer);
-        int pick = focus == F_ABOUT ? ui_menu("VitaOS", (const char *const *)vitaos_items, newer ? 4 : 3) : -1;
-        if (pick == 3) update_get();
+        int pick = focus == F_ABOUT ? ui_menu("VitaOS", (const char *const *)vitaos_items, newer ? 5 : 4) : -1;
+        if (pick == 3) {
+            if (boot_on) {
+                SceUID bf = sceIoOpen("ux0:data/arcadehub/user/boot.off", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+                if (bf >= 0) sceIoClose(bf);
+                ui_toast("VitaOS will not open at power-on", C_ACCENT);
+            } else {
+                sceIoRemove("ux0:data/arcadehub/user/boot.off");
+                ui_toast("VitaOS opens at power-on (needs the PS plugin)", C_OK);
+            }
+        }
+        if (pick == 4) update_get();
         if (pick == 0 && lib_rescan) lib_rescan();
         if (pick == 1 && lib_art) lib_art();
         if (pick == 2)

@@ -151,4 +151,9 @@ void ui_message(const char *title, const char *body);
 /* Which header tab a tap landed on, or -1. */
 int header_tab_at(int x, int y, const char *const tabs[], int ntabs);
 
+/* Which header status icon (0 = Wi-Fi, 1 = Bluetooth) a point landed in, or
+ * -1. main.c uses it for both the short-tap-to-Settings-tab case and its own
+ * long-press-to-system-Settings timing. */
+int header_icon_at(int x, int y);
+
 #endif

@@ -42,11 +42,17 @@ You need a Vita running HENkaku or Enso, with VitaShell.
 2. Install it with VitaShell.
 3. Open VitaOS from its bubble.
 
-### Optional: PS returns to VitaOS
+### Optional: make VitaOS feel like the Vita's own OS
 
-With the small `vitaos_ps.suprx` plugin, pressing PS inside VitaOS goes back
-to its Home tab, the way HOME works on a Switch. Without it, PS works as
-usual.
+With the small `vitaos_ps.suprx` plugin:
+
+- the Vita starts in VitaOS at power-on (turn it off in Settings > VitaOS >
+  Start at boot, or hold L while powering on to skip all plugins once)
+- pressing PS inside VitaOS goes back to its Home tab, the way HOME works on a
+  Switch
+- a game you started from VitaOS brings you back to VitaOS when it ends
+
+Without it, the Vita behaves as usual.
 
 1. Copy `vitaos_ps.suprx` to `ur0:tai/`.
 2. Add these two lines to `ur0:tai/config.txt`:

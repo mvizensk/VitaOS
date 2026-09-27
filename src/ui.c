@@ -10,6 +10,7 @@
 #include <psp2/touch.h>
 #include <psp2/rtc.h>
 #include <psp2/power.h>
+#include <psp2/net/netctl.h>
 #include <psp2/ime_dialog.h>
 #include <psp2/common_dialog.h>
 #include <psp2/kernel/processmgr.h>
@@ -962,6 +963,92 @@ void human_size(unsigned long long n, char *out, int max) {
 #define TAB_GAP 26
 #define TAB_SIZE 20
 
+/* ---------- header status icons: Wi-Fi and Bluetooth, left of the clock ----
+ * A short tap on either goes to our own Settings tab (handled in main.c
+ * alongside the tab-bar taps); a long press jumps straight into the matching
+ * system Settings page (main.c owns that timing too). thick_line is defined
+ * further down, where the footer's button glyphs use it; forward-declared
+ * here so the icons can share it instead of duplicating a line-drawer. */
+static void thick_line(float x0, float y0, float x1, float y1, unsigned int c);
+
+#define ICON_HIT_W 36    /* touch hit box: generous, the glyphs themselves are small */
+#define ICON_HIT_H 40
+#define ICON_GAP   30    /* Wi-Fi to Bluetooth, center to center */
+#define ICON_PAD   18    /* Bluetooth to the clock text */
+
+/* A ring segment `t` px thick, from angle a0 to a1 (radians, 0 = up,
+ * clockwise) around (cx, cy). A fixed 8-segment fan is smooth enough at
+ * icon size, so unlike draw_round_ring there's no need to size the buffer
+ * to a variable segment count. */
+static void arc_ring(float cx, float cy, float r, float t, float a0, float a1, unsigned int c) {
+    enum { N = 8 };
+    vita2d_color_vertex *v = vita2d_pool_memalign(2 * (N + 1) * sizeof(vita2d_color_vertex), sizeof(vita2d_color_vertex));
+    if (!v) return;
+    for (int k = 0; k <= N; ++k) {
+        float a = a0 + (a1 - a0) * k / N, s = sinf(a), co = cosf(a);
+        v[2 * k]     = (vita2d_color_vertex){cx + s * r,       cy - co * r,       0.5f, c};
+        v[2 * k + 1] = (vita2d_color_vertex){cx + s * (r - t), cy - co * (r - t), 0.5f, c};
+    }
+    vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, v, 2 * (N + 1));
+}
+
+/* Three arcs fanning up from a dot: the familiar Wi-Fi glyph. Dim and
+ * slashed through with no connection, full dim-white when connected. */
+static void icon_wifi(float cx, float cy, int connected) {
+    unsigned int c = connected ? C_DIM : C_FAINT;
+    vita2d_draw_fill_circle(cx, cy + 6, 2, c);
+    arc_ring(cx, cy + 6, 6,  2, -0.9f, 0.9f, c);
+    arc_ring(cx, cy + 6, 10, 2, -0.9f, 0.9f, c);
+    arc_ring(cx, cy + 6, 14, 2, -0.9f, 0.9f, c);
+    if (!connected) thick_line(cx - 10, cy - 7, cx + 10, cy + 13, c);   /* struck through: no signal */
+}
+
+/* The Bluetooth bind-rune (Hagall + Berkanan): a spine plus two triangular
+ * wings. Always dim-white; no pairing state is read for this icon. */
+static void icon_bt(float cx, float cy, unsigned int c) {
+    float h = 8, w = 6;
+    thick_line(cx, cy - h, cx, cy + h, c);              /* the spine */
+    thick_line(cx, cy - h, cx + w, cy - h / 2, c);       /* top wing, out */
+    thick_line(cx + w, cy - h / 2, cx, cy, c);           /* top wing, in */
+    thick_line(cx, cy, cx + w, cy + h / 2, c);           /* bottom wing, out */
+    thick_line(cx + w, cy + h / 2, cx, cy + h, c);       /* bottom wing, in */
+}
+
+/* sceNetCtlInetGetState is a round trip to the net stack; once a second is
+ * plenty for a status icon and keeps it off the per-frame budget. */
+static int wifi_connected(void) {
+    static int connected, checked;
+    static unsigned int last_frame;
+    unsigned int f = ui_frames();
+    if (!checked || f - last_frame >= 60) {
+        checked = 1; last_frame = f;
+        int st = 0;
+        connected = sceNetCtlInetGetState(&st) >= 0 && st == SCE_NETCTL_STATE_CONNECTED;
+    }
+    return connected;
+}
+
+/* The clock/battery string and the x where it starts. Shared by draw_header
+ * and header_icon_centers so a touch this frame (checked in main.c before
+ * draw_header runs) lines up with what actually gets painted. */
+static void header_clock_text(char *out, int max, int *right_x) {
+    SceDateTime t;
+    sceRtcGetCurrentClockLocalTime(&t);
+    int h = t.hour % 12 ? t.hour % 12 : 12;
+    snprintf(out, max, "%d:%02d %s    %d%%%s", h, t.minute, t.hour < 12 ? "AM" : "PM",
+             scePowerGetBatteryLifePercent(), scePowerIsBatteryCharging() ? " +" : "");
+    if (right_x) *right_x = W - 30 - text_w(font, 18, out);
+}
+
+/* Centers for the two icons, in screen pixels. */
+static void header_icon_centers(int *wifi_cx, int *bt_cx, int *cy) {
+    char buf[64]; int right_x;
+    header_clock_text(buf, sizeof(buf), &right_x);
+    *bt_cx = right_x - ICON_PAD - ICON_HIT_W / 2;
+    *wifi_cx = *bt_cx - ICON_GAP;
+    *cy = 30;
+}
+
 void draw_header(const char *const tabs[], int ntabs, int active, const char *context) {
     vita2d_draw_rectangle(0, 0, W, 64, C_PANEL);
     vita2d_draw_rectangle(0, 64, W, 1, C_LINE);
@@ -981,16 +1068,15 @@ void draw_header(const char *const tabs[], int ntabs, int active, const char *co
     float travel = ax - ux < 0 ? ux - ax : ax - ux;
     float stretch = travel > 2 ? travel * 0.15f : 0;
     vita2d_draw_rectangle(ux - stretch / 2, 58, uw + stretch, 3, C_ACCENT);
-    SceDateTime t;
-    sceRtcGetCurrentClockLocalTime(&t);
-    int h = t.hour % 12 ? t.hour % 12 : 12;
-    char right[64];
-    snprintf(right, sizeof(right), "%d:%02d %s    %d%%%s", h, t.minute, t.hour < 12 ? "AM" : "PM",
-             scePowerGetBatteryLifePercent(), scePowerIsBatteryCharging() ? " +" : "");
+    char right[64]; int right_x;
+    header_clock_text(right, sizeof(right), &right_x);
     text_right(font, W - 30, 41, C_DIM, 18, right);
-    int right_x = W - 30 - text_w(font, 18, right);
+    int wifi_cx, bt_cx, icon_cy;
+    header_icon_centers(&wifi_cx, &bt_cx, &icon_cy);
+    icon_wifi(wifi_cx, icon_cy, wifi_connected());
+    icon_bt(bt_cx, icon_cy, C_DIM);
     if (context && *context) {
-        int cw = text_w(font, 16, context), rx = right_x - 24, room = rx - x;
+        int cw = text_w(font, 16, context), rx = wifi_cx - ICON_HIT_W / 2 - 10, room = rx - x;
         if (room >= 90) {
             if (cw > room) cw = room;
             text_fit(font, rx - cw, 40, C_FAINT, 16, context, cw);
@@ -1006,6 +1092,18 @@ int header_tab_at(int x, int y, const char *const tabs[], int ntabs) {
         if (x >= left - 12 && x <= left + w + 12) return i;
         left += w + TAB_GAP;
     }
+    return -1;
+}
+
+/* Which header status icon (0 = Wi-Fi, 1 = Bluetooth) a point landed in, or
+ * -1. The hit box is generous (36x40): the glyphs themselves are small. */
+int header_icon_at(int x, int y) {
+    int wifi_cx, bt_cx, cy;
+    header_icon_centers(&wifi_cx, &bt_cx, &cy);
+    if (x >= wifi_cx - ICON_HIT_W / 2 && x <= wifi_cx + ICON_HIT_W / 2 &&
+        y >= cy - ICON_HIT_H / 2 && y <= cy + ICON_HIT_H / 2) return 0;
+    if (x >= bt_cx - ICON_HIT_W / 2 && x <= bt_cx + ICON_HIT_W / 2 &&
+        y >= cy - ICON_HIT_H / 2 && y <= cy + ICON_HIT_H / 2) return 1;
     return -1;
 }
 

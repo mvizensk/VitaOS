@@ -165,6 +165,38 @@ static void release_ps(void) {
     banner_frames = 60 * 6;
 }
 
+/* Long-pressing a header status icon (a Reddit ask, 2026-09-26): jump
+ * straight into the matching page of the system Settings app instead of our
+ * own Settings tab. A short tap on the same icon still just switches tabs,
+ * handled below next to the other header taps. */
+#define ICON_HOLD_FRAMES (60 * 6 / 10)   /* ~0.6 s at 60 fps */
+
+static void header_icon_hold(Input *in) {
+    static int icon = -1;      /* which icon this touch is tracking, -1 = none */
+    static int sx, sy;         /* where that touch began */
+    static unsigned int held;  /* frames held so far, this touch */
+    static int fired;          /* the long press already acted for this touch */
+    if (in->touching) {
+        if (icon < 0) {
+            int t = header_icon_at(in->tx, in->ty);
+            if (t >= 0) { icon = t; sx = in->tx; sy = in->ty; held = 0; fired = 0; }
+            return;
+        }
+        int dx = in->tx - sx, dy = in->ty - sy;
+        if (dx * dx + dy * dy > 12 * 12) { icon = -1; return; }   /* dragged off: not a hold */
+        if (!fired && ++held >= ICON_HOLD_FRAMES) {
+            fired = 1;
+            release_ps();                                  /* so PS can bring Home back, as Settings does */
+            if (sceAppMgrLaunchAppByUri(0x20000, "settings_dlg:") < 0) ui_toast("Settings would not open", C_BAD);
+            else ui_toast(icon == 0 ? "Network > Wi-Fi Settings. PS comes back here."
+                                    : "Devices > Bluetooth Devices. PS comes back here.", C_ACCENT);
+        }
+        return;
+    }
+    if (icon >= 0 && fired) in->tapped = 0;   /* the hold already acted; don't also tap-navigate */
+    icon = -1; fired = 0; held = 0;
+}
+
 static void draw_banner(void) {
     if (banner_frames <= 0) return;
     banner_frames--;
@@ -613,9 +645,11 @@ int main(void) {
         int searching = search_active();
         if (!movie_full && !searching && in.pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_L1)) tab = (tab + NTABS - 1) % NTABS;
         if (!movie_full && !searching && in.pressed & (SCE_CTRL_RTRIGGER | SCE_CTRL_R1)) tab = (tab + 1) % NTABS;
+        if (!movie_full && !searching) header_icon_hold(&in);   /* may clear in.tapped below */
         if (in.tapped && !movie_full && !searching) {
             int t = header_tab_at(in.tap_x, in.tap_y, TABS, NTABS);
             if (t >= 0) { tab = t; in.tapped = 0; }
+            else if (header_icon_at(in.tap_x, in.tap_y) >= 0) { tab = T_SETTINGS; in.tapped = 0; }
         }
         if (open_music) { tab = T_MUSIC; open_music = 0; }   /* the footer player's title was tapped */
         /* UI sounds, from the input itself: every screen gets them. Not in the

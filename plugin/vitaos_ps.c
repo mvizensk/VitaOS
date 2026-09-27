@@ -17,7 +17,9 @@
  * running at all: a game suspended behind LiveArea (PS pressed) has not ended,
  * and VitaOS suspended there (its "system home" path) means the player chose
  * LiveArea. ux0:data/arcadehub/return.off turns it off. On a Vita with the
- * agent bridge, the bridge does this job and the plugin stands aside. */
+ * agent bridge, the bridge does this job and the plugin stands aside.
+ *
+ * 1.3 (2026-09-27): and the Vita starts in VitaOS (see boot_start). */
 #include <taihen.h>
 #include <psp2/ctrl.h>
 #include <psp2/appmgr.h>
@@ -181,11 +183,44 @@ static int watch(SceSize args, void *argp) {
     return sceKernelExitDeleteThread(0);
 }
 
+/* ---------- 1.3: start in VitaOS ----------
+ * About 15 s after the Vita starts (the shell has settled), open VitaOS, so the
+ * bubbles are only ever seen by choice. Retries for two minutes: a launch
+ * behind the lock screen, or one that stops on VitaOS's LiveArea page, does
+ * not always take the first time. Off with ux0:data/arcadehub/user/boot.off
+ * (Settings > VitaOS > Start at boot); holding L at power-on skips every
+ * plugin, this one included. Never over an app that is already running. */
+#define BOOT_OFF "ux0:data/arcadehub/user/boot.off"
+static SceUID boot_thread = -1;
+
+static int any_app_running(void) {
+    char t[16];
+    SceUID p;
+    int h;
+    return vitaos_running() || running_game(t, &p, &h);
+}
+
+static int boot_start(SceSize args, void *argp) {
+    (void)args; (void)argp;
+    sceKernelDelayThread(15 * 1000 * 1000);
+    for (int attempt = 0; attempt < 12 && running; ++attempt) {
+        if (file_exists(BOOT_OFF) || any_app_running() || bridge_loaded()) break;   /* the agent bridge has its own */
+        const char *h = home_tid();
+        if (!h) break;
+        launch_home(h);
+        if (vitaos_running()) break;
+        sceKernelDelayThread(10 * 1000 * 1000);
+    }
+    return sceKernelExitDeleteThread(0);
+}
+
 void _start() __attribute__((weak, alias("module_start")));
 int module_start(SceSize args, void *argp) {
     (void)args; (void)argp;
     thread = sceKernelCreateThread("vitaos_ps", watch, 0x10000100, 0x2000, 0, 0, NULL);
     if (thread >= 0) sceKernelStartThread(thread, 0, NULL);
+    boot_thread = sceKernelCreateThread("vitaos_boot", boot_start, 0x10000100, 0x2000, 0, 0, NULL);
+    if (boot_thread >= 0) sceKernelStartThread(boot_thread, 0, NULL);
     return SCE_KERNEL_START_SUCCESS;
 }
 
@@ -193,5 +228,6 @@ int module_stop(SceSize args, void *argp) {
     (void)args; (void)argp;
     running = 0;
     if (thread >= 0) { SceUInt timeout = 500 * 1000; sceKernelWaitThreadEnd(thread, NULL, &timeout); }
+    if (boot_thread >= 0) { SceUInt timeout = 500 * 1000; sceKernelWaitThreadEnd(boot_thread, NULL, &timeout); }
     return SCE_KERNEL_STOP_SUCCESS;
 }
