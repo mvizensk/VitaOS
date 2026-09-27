@@ -204,9 +204,9 @@ static void posters_near(void) {
         movies[i].poster = abs(i - sel) <= 5 ? poster_of(&movies[i]) : NULL;
 }
 
-#define PW 180.0f          /* the centre poster */
-#define PH 270.0f
-#define HORIZON 218.0f     /* posters are centred on this line */
+#define PW 250.0f          /* the centre poster: as big as the page allows (playtest 2026-09-26) */
+#define PH 375.0f
+#define HORIZON 262.0f     /* posters are centred on this line */
 #define STRIPS 24
 
 /* One poster as a trapezoid: drawn in thin vertical strips, each its own
@@ -253,7 +253,7 @@ static void cover_flow(void) {
     for (int j = 0; j < n; ++j) {
         int i = order[j];
         float d = i - pos, ad = fabsf(d), near = ad < 1 ? ad : 1;
-        float off = ad < 1 ? d * 190 : (d > 0 ? 1 : -1) * (190 + (ad - 1) * 118);
+        float off = ad < 1 ? d * 255 : (d > 0 ? 1 : -1) * (255 + (ad - 1) * 150);
         float scale = 1.0f - 0.24f * near - (ad > 1 ? 0.07f * (ad - 1) : 0);
         if (scale < 0.45f) scale = 0.45f;
         float w = PW * scale, h = PH * scale, x = W / 2 + off - w / 2;
@@ -306,7 +306,16 @@ void movies_open(int i) {
     open_player();
 }
 
-const char *movies_hint(void) { return "X play   <- -> choose   L R tabs"; }
+const char *movies_hint(void) {
+    static char h[64];
+    if (sel >= 0 && sel < nmovies && movies[sel].resume_ms) {
+        char at[16];
+        clock_str(movies[sel].resume_ms, at, sizeof(at));
+        snprintf(h, sizeof(h), "X resume at %s   <- -> choose   L R tabs", at);
+        return h;
+    }
+    return "X play   <- -> choose   L R tabs";
+}
 
 void movies_leave(void) {
     if (full) close_player(0);
@@ -340,11 +349,11 @@ void movies_update(const Input *in) {
         sel = to < 0 ? 0 : to >= nmovies ? nmovies - 1 : to;
         fling = 0;
     }
-    if (in->tapped && in->tap_y > 70 && in->tap_y < 400) {
+    if (in->tapped && in->tap_y > 70 && in->tap_y < 460) {
         int dx = in->tap_x - W / 2;
         if (dx > -PW / 2 && dx < PW / 2) { open_player(); return; }
         int step = dx < 0 ? -1 : 1, ad = dx < 0 ? -dx : dx;
-        int k = ad < 190 + 60 ? 1 : 1 + (ad - 190 - 60) / 118 + 1;
+        int k = ad < 255 + 80 ? 1 : 1 + (ad - 255 - 80) / 150 + 1;
         int idx = sel + step * k;
         sel = idx < 0 ? 0 : idx >= nmovies ? nmovies - 1 : idx;
     }
@@ -373,17 +382,13 @@ void movies_update(const Input *in) {
         vita2d_draw_texture_tint_scale(f, (W - tw * sc) / 2, (H - th * sc) / 2, sc, sc, RGBA8(255, 255, 255, 80));
     }
     for (int k = 0; k < 8; ++k)                                     /* darker toward the floor */
-        vita2d_draw_rectangle(0, 300 + k * 30, W, 30, RGBA8(21, 24, 33, 40 + k * 22));
+        vita2d_draw_rectangle(0, 380 + k * 16, W, 16, RGBA8(21, 24, 33, 40 + k * 22));
 
     cover_flow();
 
     int tw = text_w(bold, 24, m->title);
     if (tw > W - 80) tw = W - 80;
-    text_fit(bold, (W - tw) / 2, 456, C_TEXT, 24, m->title, W - 80);
-    char line[64], at[16];
-    if (m->resume_ms) { clock_str(m->resume_ms, at, sizeof(at)); snprintf(line, sizeof(line), "X resume at %s", at); }
-    else snprintf(line, sizeof(line), "X play");
-    draw_hints_centered(W / 2, 479, line, C_ACCENT);
+    text_fit(bold, (W - tw) / 2, 486, C_TEXT, 22, m->title, W - 80);   /* what X does is in the footer */
     char count[24];
     snprintf(count, sizeof(count), "%d / %d", sel + 1, nmovies);
     text_right(font, W - 30, 92, C_FAINT, 15, count);
