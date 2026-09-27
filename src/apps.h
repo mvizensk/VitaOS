@@ -9,4 +9,6 @@ int apps_count(void);
 void apps_prewarm(void);               /* starts a background scan of ux0:app */
 const char *apps_title_for(const char *tid);
 
+const char *app_art(const char *tid, const char *file, char *out, int max);   /* ur0:appmeta first */
+
 #endif

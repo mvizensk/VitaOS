@@ -128,10 +128,32 @@ static void scan(void) {
 static struct { char tid[10]; vita2d_texture *t; unsigned int used; } cache[ICON_CACHE];
 static unsigned int tick;
 
+/* An app's picture (icon0.png, pic0.png). Retail games keep theirs encrypted
+ * in ux0:app, so read the decrypted copy the system keeps for its bubbles in
+ * ur0:appmeta; fall back to ux0:app for the few homebrew apps without one
+ * (Reddit, 2026-09-27: retail icons were blank). Decided once per app. */
+const char *app_art(const char *tid, const char *file, char *out, int max) {
+    static struct { char key[24]; int meta; } memo[512];
+    static int nmemo;
+    char key[24];
+    snprintf(key, sizeof(key), "%.9s/%s", tid, file);
+    int meta = -1;
+    for (int i = 0; i < nmemo; ++i) if (!strcmp(memo[i].key, key)) { meta = memo[i].meta; break; }
+    if (meta < 0) {
+        char p[96];
+        SceIoStat st;
+        snprintf(p, sizeof(p), "ur0:appmeta/%s/%s", tid, file);
+        meta = sceIoGetstat(p, &st) >= 0;
+        if (nmemo < 512) { snprintf(memo[nmemo].key, sizeof(memo[nmemo].key), "%s", key); memo[nmemo++].meta = meta; }
+    }
+    if (meta) snprintf(out, max, "ur0:appmeta/%s/%s", tid, file);
+    else snprintf(out, max, "ux0:app/%s/sce_sys/%s", tid, file);
+    return out;
+}
+
 static vita2d_texture *icon(const char *tid) {
-    char path[64];
-    snprintf(path, sizeof(path), "ux0:app/%s/sce_sys/icon0.png", tid);
-    return ui_image(path);
+    char path[96];
+    return ui_image(app_art(tid, "icon0.png", path, sizeof(path)));
 }
 
 /* ---------- launching ---------- */
@@ -178,7 +200,7 @@ int apps_find(const char *q, Hit *out, int max) {
         for (int i = 0; i < napps && n < max; ++i)
             if (match_score(apps[i].title, q) == sc) {
                 out[n] = (Hit){H_APP, i, 0, sc, apps[i].title, "App", NULL, "", 0};
-                snprintf(out[n++].path, sizeof(out[0].path), "ux0:app/%s/sce_sys/icon0.png", apps[i].tid);
+                app_art(apps[i].tid, "icon0.png", out[n].path, sizeof(out[0].path)); n++;
             }
     return n;
 }
@@ -300,9 +322,8 @@ void apps_update(const Input *in) {
         if (i == 2) memo_draw_icon(ix, iy, size);
         else if (i < NB) camera_draw_icon(i, ix, iy, size);
         else {
-            char path[64];
-            snprintf(path, sizeof(path), "ux0:app/%s/sce_sys/icon0.png", apps[i - NB].tid);
-            draw_app_icon(path, ix, iy, size, title, 0);
+            char path[96];
+            draw_app_icon(app_art(apps[i - NB].tid, "icon0.png", path, sizeof(path)), ix, iy, size, title, 0);
         }
         int tw = text_w(font, 15, title);
         if (tw <= CELL_W - 16) text(font, x + (CELL_W - tw) / 2, y + ICON + 36, i == sel ? C_TEXT : C_DIM, 15, title);

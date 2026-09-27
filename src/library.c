@@ -25,6 +25,7 @@
 #include <psp2/io/stat.h>
 #include <curl/curl.h>
 #include "library.h"
+#include "apps.h"
 
 static char ROOT_[64] = "ux0:data/arcadehub/";
 #define ROOT ROOT_
@@ -361,17 +362,93 @@ static void scan_roms(void) {
 #define PSP (-2)
 #define VITA (-3)
 
-static void scan_psp(void) {
-    if (!exists("ux0:app/RETROFLOW/payloads/boot.bin")) return;   /* the Adrenaline bubble launcher */
-    List l = list_dir("ux0:pspemu/PSP/GAME");
-    for (int i = 0; i < l.n; ++i) {
-        char eboot[256], sfo[256];
-        snprintf(eboot, sizeof(eboot), "ux0:/pspemu/PSP/GAME/%s/EBOOT.PBP", l.names[i]);
-        snprintf(sfo, sizeof(sfo), "ux0:pspemu/PSP/GAME/%s/EBOOT.PBP", l.names[i]);
-        if (!exists(sfo) || !strncasecmp(l.names[i], "NP", 2)) continue;   /* skip PS1 classics' folders */
-        add(PSP, l.names[i], "psp", eboot, "", "", "");
+/* An EBOOT.PBP's own PARAM.SFO: its TITLE and CATEGORY ("ME" = a PS1 classic
+ * run by Adrenaline, anything else = PSP). The PBP header points at it. */
+static int pbp_info(const char *path, char *title, int tmax, char *cat, int cmax) {
+    title[0] = cat[0] = 0;
+    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (fd < 0) return -1;
+    unsigned char h[40], buf[4096];
+    int ok = sceIoRead(fd, h, sizeof(h)) == (int)sizeof(h) && !memcmp(h, "\0PBP", 4);
+    unsigned int off = h[8] | h[9] << 8 | h[10] << 16 | (unsigned)h[11] << 24;
+    unsigned int end = h[12] | h[13] << 8 | h[14] << 16 | (unsigned)h[15] << 24;
+    int n = 0;
+    if (ok && end > off && end - off <= sizeof(buf)) {
+        sceIoLseek(fd, off, SCE_SEEK_SET);
+        n = sceIoRead(fd, buf, end - off);
     }
-    list_free(&l);
+    sceIoClose(fd);
+    if (n < 20 || memcmp(buf, "\0PSF", 4)) return -1;
+    unsigned int keys = buf[8] | buf[9] << 8 | buf[10] << 16 | (unsigned)buf[11] << 24;
+    unsigned int data = buf[12] | buf[13] << 8 | buf[14] << 16 | (unsigned)buf[15] << 24;
+    unsigned int count = buf[16] | buf[17] << 8 | buf[18] << 16 | (unsigned)buf[19] << 24;
+    for (unsigned int i = 0; i < count && 20 + i * 16 + 16 <= (unsigned)n; ++i) {
+        unsigned char *e = buf + 20 + i * 16;
+        unsigned int key = e[0] | e[1] << 8, len = e[4] | e[5] << 8 | e[6] << 16;
+        unsigned int vo = e[12] | e[13] << 8 | e[14] << 16 | (unsigned)e[15] << 24;
+        if (keys + key >= (unsigned)n || data + vo + len > (unsigned)n) continue;
+        const char *k = (const char *)buf + keys + key, *v = (const char *)buf + data + vo;
+        if (!strcmp(k, "TITLE")) snprintf(title, tmax, "%.*s", (int)len, v);
+        else if (!strcmp(k, "CATEGORY")) snprintf(cat, cmax, "%.*s", (int)len, v);
+    }
+    return title[0] ? 0 : -1;
+}
+
+static int sys_by_id(const char *id) {
+    for (int s = 0; s < NSYS; ++s) if (!strcmp(SYS[s].id, id)) return s;
+    return -1;
+}
+
+/* PSP and PS1-on-Adrenaline games, wherever Adrenaline users keep them
+ * (Reddit, 2026-09-27: "it won't recognise my PSP games"): ISO/CSO images in
+ * pspemu/ISO on ux0 or uma0, and EBOOT.PBP folders in pspemu/PSP/GAME. PS1
+ * classics (CATEGORY "ME") go to the PlayStation list, the rest to PSP. Needs
+ * Adrenaline; RetroFlow's launcher, when present, boots a game directly. */
+static void scan_psp(void) {
+    if (!exists("ux0:app/PSPEMUCFW/eboot.bin")) return;   /* Adrenaline */
+    int psx = sys_by_id("psx");
+    static const char *const roots[] = {"ux0:pspemu", "uma0:pspemu", "imc0:pspemu"};
+    for (int r = 0; r < 3; ++r) {
+        char dir[64];
+        snprintf(dir, sizeof(dir), "%s/ISO", roots[r]);
+        List l = list_dir(dir);
+        for (int i = 0; i < l.n; ++i) {
+            const char *nm = l.names[i];
+            const char *dot = strrchr(nm, '.');
+            char path[256];
+            if (!dot || (strcasecmp(dot, ".iso") && strcasecmp(dot, ".cso"))) {
+                /* one folder deep: ISO/Game Name/game.iso */
+                char sub[160];
+                snprintf(sub, sizeof(sub), "%s/%s", dir, nm);
+                List s2 = list_dir(sub);
+                for (int j = 0; j < s2.n; ++j) {
+                    const char *d2 = strrchr(s2.names[j], '.');
+                    if (!d2 || (strcasecmp(d2, ".iso") && strcasecmp(d2, ".cso"))) continue;
+                    snprintf(path, sizeof(path), "%s/%s", sub, s2.names[j]);
+                    if (!seen_rom(path)) add(PSP, nm, "psp", path, "", "", "");
+                }
+                list_free(&s2);
+                continue;
+            }
+            snprintf(path, sizeof(path), "%s/%s", dir, nm);
+            if (seen_rom(path)) continue;
+            char title[160];
+            snprintf(title, sizeof(title), "%.*s", (int)(dot - nm), nm);
+            add(PSP, title, "psp", path, "", "", "");
+        }
+        list_free(&l);
+        snprintf(dir, sizeof(dir), "%s/PSP/GAME", roots[r]);
+        l = list_dir(dir);
+        for (int i = 0; i < l.n; ++i) {
+            char eboot[256], title[160], cat[8];
+            snprintf(eboot, sizeof(eboot), "%s/%s/EBOOT.PBP", dir, l.names[i]);
+            if (!exists(eboot) || seen_rom(eboot)) continue;
+            if (pbp_info(eboot, title, sizeof(title), cat, sizeof(cat)) < 0) snprintf(title, sizeof(title), "%s", l.names[i]);
+            int ps1 = !strcmp(cat, "ME");
+            add(ps1 && psx >= 0 ? psx : PSP, title, "psp", eboot, "", "", "");
+        }
+        list_free(&l);
+    }
 }
 
 static void sfo_title(const char *tid, char *out, int max) {
@@ -434,8 +511,8 @@ static void scan_vita(void) {
         char title[160], icon[96], pic[96];
         sfo_title(tid, title, sizeof(title));
         if (!title[0]) continue;
-        snprintf(icon, sizeof(icon), "ux0:app/%s/sce_sys/icon0.png", tid);
-        snprintf(pic, sizeof(pic), "ux0:app/%s/sce_sys/pic0.png", tid);
+        app_art(tid, "icon0.png", icon, sizeof(icon));   /* retail art is encrypted in ux0:app */
+        app_art(tid, "pic0.png", pic, sizeof(pic));
         add(VITA, title, "app", tid, "", icon, pic);
     }
     list_free(&l);

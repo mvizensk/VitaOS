@@ -694,8 +694,16 @@ static int launch(const Game *g) {
     else if (!strcmp(g->kind, "n64")) snprintf(uri, sizeof(uri), "psgm:play?titleid=DEDALOX64&param=%s", g->a1);
     else if (!strcmp(g->kind, "scumm")) snprintf(uri, sizeof(uri), "psgm:play?titleid=VSCU00001&path=%s&game_id=%s", g->a1, g->a2);
     else if (!strcmp(g->kind, "psp")) {
-        if (write_psp_boot(g->a1) < 0) return -1;
-        snprintf(uri, sizeof(uri), "psgm:play?titleid=RETROLNCR");
+        /* RetroFlow's launcher boots this very game; without it, Adrenaline
+         * opens and the game is picked there (VitaOS cannot hand Adrenaline
+         * an ISO by itself). */
+        SceIoStat lst;
+        if (sceIoGetstat("ux0:app/RETROLNCR/eboot.bin", &lst) >= 0 && write_psp_boot(g->a1) >= 0)
+            snprintf(uri, sizeof(uri), "psgm:play?titleid=RETROLNCR");
+        else {
+            snprintf(uri, sizeof(uri), "psgm:play?titleid=PSPEMUCFW");
+            ui_toast("Adrenaline opens: pick the game there", C_ACCENT);
+        }
     } else return -1;
     /* The SceShell bridge (vabridge >= 3.2) taps OK on the "Arcade Hub will
      * close" dialog when it sees this flag. */
