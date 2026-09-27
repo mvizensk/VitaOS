@@ -43,10 +43,10 @@ static int napps, view[MAX_APPS], nview;
 static char *blob;
 /* The front page is "For you" (rows, like the Play Store), then Top charts,
  * then one grid per VitaDB type. */
-enum { C_FORYOU, C_TOP, NCATS = 6 };
+enum { C_FORYOU, C_TOP, C_UPDATES, NCATS = 7 };
 static int cat;
-static const char *const cat_names[] = {"For you", "Top charts", "Games", "Ports", "Utilities", "Emulators"};
-static const char *const cat_types[] = {NULL, NULL, "1", "2", "4", "5"};
+static const char *const cat_names[] = {"For you", "Top charts", "Updates", "Games", "Ports", "Utilities", "Emulators"};
+static const char *const cat_types[] = {NULL, NULL, NULL, "1", "2", "4", "5"};
 static int sel, detail, chips, cur;                  /* cur: the app on the detail page (index into apps) */
 static float top;
 static int grow_sel = -1;
@@ -104,6 +104,7 @@ static int by_popular(const void *a, const void *b) {
     return x < y ? 1 : x > y ? -1 : by_date(a, b);
 }
 static int sort_new;                  /* 0 popular (default), 1 newest */
+static int has_update(App *a);        /* defined below, by the install/SFO code; filter() wants it for Updates */
 
 /* For you: a featured banner, then rows of the most popular in each kind,
  * then what is new. Built from the catalogue whenever it changes. */
@@ -139,8 +140,10 @@ static void build_rows(void) {
 
 static void filter(void) {
     nview = 0;
-    for (int i = 0; i < napps; ++i)
+    for (int i = 0; i < napps; ++i) {
+        if (cat == C_UPDATES) { if (has_update(&apps[i])) view[nview++] = i; continue; }
         if (!cat_types[cat] || !strcmp(apps[i].type, cat_types[cat])) view[nview++] = i;
+    }
     qsort(view, nview, sizeof(int), sort_new && cat >= 2 ? by_date : by_popular);
     sel = 0; top = 0;
 }
@@ -377,7 +380,9 @@ static int extract_zip(const char *zip_path, const char *dest) {
 
 /* ---------- head.bin and the promoter ---------- */
 
-static int sfo_title_id(const char *dir, char *tid) {
+/* One string value out of sce_sys/param.sfo, by key. TITLE_ID for the
+ * promoter, APP_VER (Sony's "NN.NN") for the update check below. */
+static int sfo_value(const char *dir, const char *key, char *out, int outmax) {
     char path[300];
     snprintf(path, sizeof(path), "%s/sce_sys/param.sfo", dir);
     static unsigned char sfo[16 * 1024];
@@ -390,9 +395,44 @@ static int sfo_title_id(const char *dir, char *tid) {
     for (unsigned int i = 0; i < count && 20 + i * 16 + 16 <= (unsigned int)n; ++i) {
         const unsigned char *e = sfo + 20 + i * 16;
         const char *k = (const char *)sfo + keys + rd16(e);
-        if (!strcmp(k, "TITLE_ID")) { snprintf(tid, 10, "%s", (const char *)sfo + data + rd32(e + 12)); return 0; }
+        if (!strcmp(k, key)) { snprintf(out, outmax, "%s", (const char *)sfo + data + rd32(e + 12)); return 0; }
     }
     return -2;
+}
+
+static int sfo_title_id(const char *dir, char *tid) { return sfo_value(dir, "TITLE_ID", tid, 10); }
+static int sfo_app_ver(const char *dir, char *ver) { return sfo_value(dir, "APP_VER", ver, 16); }
+
+/* Version compare: the catalogue writes "v.2.9.1" or "1.3"; an installed
+ * app's APP_VER is Sony's own "NN.NN" (a literal decimal number, so "1.3"
+ * and "01.30" are the same release). Two-part versions compare as real
+ * numbers; three-part ones compare component by component. Mixed shapes,
+ * or anything that will not parse, are not confident, so no update is
+ * ever claimed on a guess. */
+static int parse_version(const char *v, int *dots, double *num, int part[3]) {
+    if (!v || !*v) return 0;
+    if (*v == 'v' || *v == 'V') { ++v; if (*v == '.') ++v; }
+    if (!*v) return 0;
+    int d = 0;
+    for (const char *c = v; *c; ++c) {
+        if (*c == '.') ++d;
+        else if (*c < '0' || *c > '9') return 0;         /* anything but digits and dots: unparseable */
+    }
+    if (d > 2) return 0;                                 /* four-part and beyond: not confident */
+    *dots = d;
+    if (d <= 1) { *num = atof(v); return 1; }
+    return sscanf(v, "%d.%d.%d", &part[0], &part[1], &part[2]) == 3;
+}
+
+/* 1 when 'installed' is behind 'latest'; 0 otherwise, including "can't tell". */
+static int version_older(const char *installed, const char *latest) {
+    int di, dl, pi[3], pl[3];
+    double ni, nl;
+    if (!parse_version(installed, &di, &ni, pi) || !parse_version(latest, &dl, &nl, pl)) return 0;
+    if ((di <= 1) != (dl <= 1)) return 0;                /* different shapes: not confident */
+    if (di <= 1) return nl > ni + 1e-9;
+    for (int k = 0; k < 3; ++k) if (pl[k] != pi[k]) return pl[k] > pi[k];
+    return 0;
 }
 
 static void package_hash(const unsigned char *data, unsigned int len, unsigned char out[16]) {
@@ -638,14 +678,31 @@ static const char *type_name(const App *a) {
     return "App";
 }
 
+/* inst: 0 not checked, 1 not installed, 2 installed and current, 3 installed
+ * but behind the catalogue. The APP_VER read only happens for apps that are
+ * actually on the Vita, and only once (cached here like the install check). */
 static int is_installed(App *a) {
     if (!a->inst) {
-        char p[64];
+        char dir[48], p[64], ver[16];
         SceIoStat st;
-        snprintf(p, sizeof(p), "ux0:app/%s/eboot.bin", a->titleid);
-        a->inst = a->titleid[0] && sceIoGetstat(p, &st) >= 0 ? 2 : 1;
+        snprintf(dir, sizeof(dir), "ux0:app/%s", a->titleid);
+        snprintf(p, sizeof(p), "%s/eboot.bin", dir);
+        if (!a->titleid[0] || sceIoGetstat(p, &st) < 0) a->inst = 1;
+        else a->inst = sfo_app_ver(dir, ver) >= 0 && version_older(ver, a->version) ? 3 : 2;
     }
-    return a->inst == 2;
+    return a->inst >= 2;
+}
+
+static int has_update(App *a) { is_installed(a); return a->inst == 3; }
+
+/* For a badge on the Store tab: how many installed apps are behind the
+ * catalogue. Cheap once the catalogue and inst cache are warm (an int
+ * compare per app); the first pass over an unchecked app still costs an
+ * sceIoGetstat and, if installed, an SFO read. */
+int store_updates_count(void) {
+    int n = 0;
+    for (int i = 0; i < napps; ++i) if (has_update(&apps[i])) ++n;
+    return n;
 }
 
 static void draw_icon(App *a, float x, float y, float s) {
@@ -681,7 +738,7 @@ static void open_detail(int app) { cur = app; detail = 1; job_stage = 0; }
 void store_leave(void) { if (installing < 0) { detail = 0; job_stage = 0; } chips = 0; }
 
 const char *store_hint(void) {
-    if (detail) return installing >= 0 ? "Installing\xE2\x80\xA6" : "X install    O back";
+    if (detail) return installing >= 0 ? "Installing\xE2\x80\xA6" : has_update(&apps[cur]) ? "X update    O back" : "X install    O back";
     if (chips) return "\xE2\x86\x90 \xE2\x86\x92  section    X back to the apps    L R tabs";
     if (cat == C_FORYOU) return "X details    \xE2\x86\x91 \xE2\x86\x93 rows    [] refresh    O downloads    L R tabs";
     if (cat == C_TOP) return "X details    [] refresh    O downloads    L R tabs";
@@ -694,6 +751,8 @@ const char *store_hint(void) {
 static int detail_page(const Input *in, unsigned int p) {
     App *a = &apps[cur];
     int installed = is_installed(a);
+    int upd = has_update(a);
+    const char *verb = upd ? "Update" : installed ? "Reinstall" : "Install";
     if (in->tapped && installing < 0 && in->tap_x >= 40 && in->tap_x < 460 && in->tap_y >= 250 && in->tap_y < 294) p |= SCE_CTRL_CROSS;
     if (p & SCE_CTRL_CIRCLE && installing < 0) { detail = 0; job_stage = 0; return 1; }
     if (p & SCE_CTRL_CROSS && installing < 0 && job_stage != 4) {
@@ -702,9 +761,9 @@ static int detail_page(const Input *in, unsigned int p) {
         else if (!is_vpk) ui_message("Not a VPK", "This one downloads as an archive; install it by hand.");
         else {
             char msg[300];
-            snprintf(msg, sizeof(msg), "%s %s %s (%.1f MB)?%s", installed ? "Reinstall" : "Install", a->name, a->version,
+            snprintf(msg, sizeof(msg), "%s %s %s (%.1f MB)?%s", verb, a->name, a->version,
                      atoi(a->size) / 1048576.0f, a->data[0] ? " It also needs data files that are not installed automatically." : "");
-            if (ui_confirm(installed ? "Reinstall" : "Install", msg)) { installing = cur; job_stage = 1; job_msg[0] = 0; kick(); }
+            if (ui_confirm(verb, msg)) { installing = cur; job_stage = 1; job_msg[0] = 0; kick(); }
         }
     }
     if (job_stage == 4) a->inst = 2;
@@ -736,6 +795,11 @@ static int detail_page(const Input *in, unsigned int p) {
         if (job_stage >= 1 && job_stage <= 3) draw_bar(40, by + 32, 420, 5, job_stage == 3 ? ui_pulse() : job_frac, C_ACCENT);
     } else if (denied(a)) {
         draw_action_button(40, by, 420, 44, "Blocked on this Vita", 1, C_BAD);
+    } else if (upd) {
+        char label[48];
+        snprintf(label, sizeof(label), "X Update to %s", a->version);
+        draw_focus_r(40, by, 420, 44, 1, 22);
+        draw_action_button(40, by, 420, 44, label, 1, C_ACCENT);
     } else if (installed || job_stage == 4) {
         draw_round_rect(40, by, 420, 44, 22, RGBA8(255, 255, 255, 22));
         draw_hints_centered(250, by + 22, job_stage == 4 ? "Installed: it is first in Apps" : "Installed    X reinstall", C_TEXT);
@@ -791,8 +855,9 @@ static void card(App *a, float x, float y, int on) {
     text_fit(on ? bold : font, (int)x, (int)y + 120, on ? C_TEXT : C_DIM, 14, a->name, 122);
     char sub[48], dl[16];
     short_count(a->downloads, dl, sizeof(dl));
-    snprintf(sub, sizeof(sub), is_installed(a) ? "Installed" : "%s  \xC2\xB7  %s \xE2\x86\x93", type_name(a), dl);
-    text_fit(font, (int)x, (int)y + 138, is_installed(a) ? C_OK : C_FAINT, 12, sub, 122);
+    int upd = has_update(a);
+    snprintf(sub, sizeof(sub), upd ? "Update" : is_installed(a) ? "Installed" : "%s  \xC2\xB7  %s \xE2\x86\x93", type_name(a), dl);
+    text_fit(font, (int)x, (int)y + 138, upd ? C_ACCENT : is_installed(a) ? C_OK : C_FAINT, 12, sub, 122);
 }
 
 #define BANNER_H 176
@@ -899,7 +964,8 @@ static void top_charts(const Input *in, unsigned int p) {
         snprintf(mb, sizeof(mb), "%.1f MB", atoi(a->size) / 1048576.0f);
         snprintf(sub, sizeof(sub), "%s  \xC2\xB7  %s", type_name(a), mb);
         text_fit(font, x + 108, (int)y + 46, C_FAINT, 13, sub, 230);
-        if (is_installed(a)) text_right(font, x + 420, (int)y + 36, C_OK, 13, "Installed");
+        if (has_update(a)) text_right(font, x + 420, (int)y + 36, C_ACCENT, 13, "Update");
+        else if (is_installed(a)) text_right(font, x + 420, (int)y + 36, C_OK, 13, "Installed");
         else {
             char dl[16];
             short_count(a->downloads, dl, sizeof(dl));
@@ -965,8 +1031,10 @@ int store_update(const Input *in) {
     if (cat == C_FORYOU) {
         ui_theme_default();
         for_you(&in2, p);
+    } else if (cat == C_UPDATES && !nview) {
+        text(font, 40, 150, C_DIM, 18, "Everything is up to date");
     } else {
-        if (cat == C_TOP) top_charts(&in2, p); else category_grid(&in2, p);
+        if (cat == C_TOP || cat == C_UPDATES) top_charts(&in2, p); else category_grid(&in2, p);
         ui_theme_from(sel < nview ? icon_of(&apps[view[sel]]) : NULL);
     }
     /* the chips last, on a band of background, so rows scrolled up pass under them */
@@ -1000,7 +1068,23 @@ static void lower_simple(const char *in, char *out, int max) {
 
 /* The store app a headline is about: the longest app name (without "Vita")
  * that appears in it as whole words. -1 when none does. */
+static int store_match_uncached(const char *headline);
+
+/* Home asks every frame, for every news tile: remember the answers (the scan
+ * over ~1,100 names cost Home ~10 ms a frame, 60 fps down to 39). */
 int store_match(const char *headline) {
+    static struct { unsigned int hash; int napps, result; } memo[8];
+    static int next;
+    unsigned int h = 2166136261u;
+    for (const char *c = headline; *c; ++c) h = (h ^ (unsigned char)*c) * 16777619u;
+    for (int i = 0; i < 8; ++i) if (memo[i].hash == h && memo[i].napps == napps) return memo[i].result;
+    int r = store_match_uncached(headline);
+    memo[next].hash = h; memo[next].napps = napps; memo[next].result = r;
+    next = (next + 1) % 8;
+    return r;
+}
+
+static int store_match_uncached(const char *headline) {
     char h[256];
     lower_simple(headline, h + 1, sizeof(h) - 2);
     h[0] = ' ';

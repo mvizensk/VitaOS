@@ -258,6 +258,16 @@ static void heart(float cx, float cy, float s, int filled, unsigned int c) {
 }
 
 enum { I_PLAY, I_PAUSE, I_NEXT, I_PREV, I_SHUFFLE, I_REPEAT };
+/* A line w pixels wide, as two triangles, with square-ish caps. */
+static void thick(float x0, float y0, float x1, float y1, float w, unsigned int c) {
+    float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+    if (len < 0.01f) return;
+    float nx = -dy / len * w / 2, ny = dx / len * w / 2, ex = dx / len * w * 0.35f, ey = dy / len * w * 0.35f;
+    x0 -= ex; y0 -= ey; x1 += ex; y1 += ey;                /* overlap the joints */
+    tri(x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny, c);
+    tri(x0 + nx, y0 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, c);
+}
+
 static void icon(int kind, float cx, float cy, float s, unsigned int c) {
     float h = s / 2;
     switch (kind) {
@@ -265,14 +275,18 @@ static void icon(int kind, float cx, float cy, float s, unsigned int c) {
     case I_PAUSE: vita2d_draw_rectangle(cx - h * 0.8f, cy - h, h * 0.55f, s, c); vita2d_draw_rectangle(cx + h * 0.25f, cy - h, h * 0.55f, s, c); break;
     case I_NEXT: tri(cx - h, cy - h * 0.8f, cx - h, cy + h * 0.8f, cx + h * 0.5f, cy, c); vita2d_draw_rectangle(cx + h * 0.55f, cy - h * 0.8f, h * 0.3f, s * 0.8f, c); break;
     case I_PREV: tri(cx + h, cy - h * 0.8f, cx + h, cy + h * 0.8f, cx - h * 0.5f, cy, c); vita2d_draw_rectangle(cx - h * 0.85f, cy - h * 0.8f, h * 0.3f, s * 0.8f, c); break;
-    case I_SHUFFLE:                                   /* two crossing arrows */
-        for (float o = -1; o <= 1; o += 0.5f) {
-            vita2d_draw_line(cx - h, cy - h * 0.55f + o, cx + h * 0.5f, cy + h * 0.55f + o, c);
-            vita2d_draw_line(cx - h, cy + h * 0.55f + o, cx + h * 0.5f, cy - h * 0.55f + o, c);
+    case I_SHUFFLE: {                                 /* two crossing arrows, solid strokes (1 px lines looked jagged) */
+        float w = s * 0.13f, top = cy - h * 0.5f, bot = cy + h * 0.5f;
+        float xl = cx - h, xs = cx - h * 0.42f, xd = cx + h * 0.28f, xa = cx + h * 0.5f;
+        for (int k = 0; k < 2; ++k) {
+            float y0 = k ? bot : top, y1 = k ? top : bot;
+            thick(xl, y0, xs, y0, w, c);                  /* in from the left */
+            thick(xs, y0, xd, y1, w, c);                  /* across */
+            thick(xd, y1, xa, y1, w, c);                  /* out to the arrow */
+            tri(xa - w * 0.2f, y1 - h * 0.34f, xa - w * 0.2f, y1 + h * 0.34f, cx + h, y1, c);
         }
-        tri(cx + h * 0.35f, cy + h * 0.25f, cx + h * 0.35f, cy + h * 0.85f, cx + h, cy + h * 0.55f, c);
-        tri(cx + h * 0.35f, cy - h * 0.25f, cx + h * 0.35f, cy - h * 0.85f, cx + h, cy - h * 0.55f, c);
         break;
+    }
     case I_REPEAT:                                    /* a loop with two arrows */
         vita2d_draw_rectangle(cx - h, cy - h * 0.6f, s * 0.8f, 2, c);
         vita2d_draw_rectangle(cx - h * 0.6f, cy + h * 0.6f - 2, s * 0.8f, 2, c);

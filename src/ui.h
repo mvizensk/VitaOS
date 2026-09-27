@@ -111,10 +111,25 @@ void draw_app_icon(const char *path, float x, float y, float size, const char *n
 void ui_save(const char *path, const void *data, int len, int append);
 
 /* Dynamic theming: take the accent from a cover or poster (cached per
- * texture), or go back to the default blue. Call every frame you want it. */
+ * texture), or go back to the default blue. Call every frame you want it.
+ * A fixed accent (Settings > Theme) overrides both: the art is ignored. */
 void ui_theme_from(vita2d_texture *art);
 void ui_theme_color(unsigned int rgba);
 void ui_theme_default(void);
+void ui_theme_set_accent(int idx);          /* -1 = match the art (default), else 0..5 */
+int ui_theme_accent_index(void);
+const char *ui_theme_accent_name(int idx);  /* "Match the art", "Blue", "Purple", ... */
+
+/* The background behind whatever tab has no backdrop art of its own
+ * (ui_ambient draws it); Home and Play lay the same glow over their own art
+ * instead, at lower strength, so Wallpaper only replaces the glow, never
+ * their art. */
+typedef enum { THEME_BG_AURORA, THEME_BG_PLAIN, THEME_BG_MIDNIGHT, THEME_BG_WALLPAPER } ThemeBg;
+void ui_theme_set_bg(ThemeBg bg, const char *wallpaper);  /* wallpaper: a file in .../wallpapers/, or NULL */
+ThemeBg ui_theme_bg(void);
+const char *ui_theme_bg_name(ThemeBg bg);
+const char *ui_theme_wallpaper(void);       /* the chosen file's name, or "" */
+void ui_theme_load(void);                   /* theme.cfg -> the state above; called once, from ui_init */
 
 /* A notice in the top-right corner for a few seconds; safe from any thread. */
 void ui_toast(const char *text, unsigned int color);

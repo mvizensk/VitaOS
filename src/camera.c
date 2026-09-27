@@ -6,9 +6,14 @@
  * thumbnail beside Home's data. The camera runs only while the viewfinder is
  * open, and closes itself after two idle minutes to spare the hardware.
  *
- * Photos: every picture under ux0:picture/ (the camera's, screenshots,
- * wallpapers), newest first, as a grid of thumbnails. Thumbnails are made
- * once, on a background thread, so the grid never decodes a full picture. */
+ * Photos: every picture under ux0:picture/, newest first, as a grid of
+ * thumbnails. Thumbnails are made once, on a background thread, so the grid
+ * never decodes a full picture. Two chips at the top split the roll: Camera
+ * (this app's own shots and anything else loose under ux0:picture) and
+ * Screenshots, which the Vita's PS+START capture and the pngshot plugin both
+ * file one folder per game under ux0:picture/SCREENSHOT/<Game>/ — that folder
+ * name becomes the album. Everything is one flat scan; which chip a picture
+ * shows under is just whether it carries an album name. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,15 +36,24 @@
 #define THUMBS "ux0:data/arcadehub/photo-thumbs"
 #define THUMB_W 256
 #define MAX_PICS 600
+#define MAX_ALBUMS 64
 #define COLS 5
 #define CELL_W 184
 #define CELL_H 118
+#define CELL_H_ALB 230               /* a photo grid cell plus two lines of caption */
 #define GRID_X 20
-#define GRID_Y 112
+#define GRID_Y 118
 #define IDLE_FRAMES (60 * 120)
 
-enum { M_OFF, M_FINDER, M_ROLL, M_VIEW };
+enum { M_OFF, M_FINDER, M_HOME, M_ALBUM, M_VIEW };
 static int mode = M_OFF;
+
+enum { SEC_CAMERA, SEC_SHOTS, NSEC };
+static const char *SECT[NSEC] = { "Camera", "Screenshots" };
+static int section, chips;          /* the chip bar, the way Music picks a section */
+static int sel_album;               /* selection in the albums grid (separate from a photo grid's sel) */
+static char album_game[48];         /* which album M_ALBUM is showing */
+static int view_from_album;         /* M_VIEW's way back: to the album grid, or the camera roll */
 
 /* ---------- JPEG out (libjpeg-turbo, straight from ABGR memory) ---------- */
 
@@ -103,11 +117,46 @@ static void thumb_path(const char *pic, char *out, int max) {
 
 /* ---------- the roll ---------- */
 
-typedef struct { char path[160]; SceDateTime when; unsigned int size; int thumbed; } Pic;
+typedef struct { char path[160]; SceDateTime when; unsigned int size; int thumbed; char game[48]; } Pic;
 static Pic pics[MAX_PICS];
 static int npics, sel;
 static volatile int scanned, scanning;
 static SceUID roll_lock = -1;
+
+/* One tile per game folder found under SCREENSHOT, newest shot as the cover.
+ * Rebuilt from pics[] on demand (a few hundred strcmps, cheap) rather than
+ * kept in step with every scan/delete/new-shot edit to pics[]. */
+typedef struct { char game[48]; int cover; int count; } Album;
+static Album albums[MAX_ALBUMS];
+static int nalbums;
+
+static void build_albums(void) {                  /* call while holding roll_lock */
+    nalbums = 0;
+    for (int i = 0; i < npics; ++i) {
+        if (!pics[i].game[0]) continue;
+        int a = -1;
+        for (int k = 0; k < nalbums; ++k) if (!strcmp(albums[k].game, pics[i].game)) { a = k; break; }
+        if (a < 0) {
+            if (nalbums >= MAX_ALBUMS) continue;   /* rare: more distinct games than we track; drop the overflow */
+            a = nalbums++;
+            snprintf(albums[a].game, sizeof(albums[a].game), "%s", pics[i].game);
+            albums[a].cover = i;
+            albums[a].count = 0;
+        }
+        ++albums[a].count;
+    }
+}
+
+/* The camera roll (no album) or one album's shots, in pics[]'s own newest-
+ * first order. idxs must hold MAX_PICS ints. Call while holding roll_lock. */
+static int build_cur(int *idxs) {
+    int n = 0;
+    for (int i = 0; i < npics; ++i) {
+        if (section == SEC_CAMERA ? !pics[i].game[0] : (pics[i].game[0] && !strcmp(pics[i].game, album_game)))
+            idxs[n++] = i;
+    }
+    return n;
+}
 
 static int newer(const void *a, const void *b) {
     const SceDateTime *x = &((const Pic *)a)->when, *y = &((const Pic *)b)->when;
@@ -122,7 +171,12 @@ static int is_picture(const char *name) {
     return dot && (!strcasecmp(dot, ".jpg") || !strcasecmp(dot, ".jpeg") || !strcasecmp(dot, ".png") || !strcasecmp(dot, ".bmp"));
 }
 
-static void walk(const char *dir, int depth, Pic *out, int *n) {
+/* game is NULL outside SCREENSHOT, "" for the SCREENSHOT folder itself (its
+ * children are per-game folders, not pictures), or the game folder's name
+ * once we're inside one — that's what every picture below it gets tagged
+ * with. Handles ux0:picture/SCREENSHOT/<Game>/ and pngshot's own <Game>/ or
+ * <TITLEID>/ folders the same way: whatever the folder is named is the album. */
+static void walk(const char *dir, int depth, const char *game, Pic *out, int *n) {
     SceUID d = sceIoDopen(dir);
     if (d < 0) return;
     SceIoDirent e;
@@ -132,12 +186,21 @@ static void walk(const char *dir, int depth, Pic *out, int *n) {
         if (e.d_name[0] == '.') continue;
         char p[160];
         snprintf(p, sizeof(p), "%s/%s", dir, e.d_name);
-        if (SCE_S_ISDIR(e.d_stat.st_mode)) { if (depth < 2) walk(p, depth + 1, out, n); continue; }
+        if (SCE_S_ISDIR(e.d_stat.st_mode)) {
+            if (depth >= 2) continue;
+            const char *sub = game;
+            if (depth == 0 && !strcasecmp(e.d_name, "SCREENSHOT")) sub = "";
+            else if (game && !game[0]) sub = e.d_name;      /* a game folder, one level under SCREENSHOT */
+            walk(p, depth + 1, sub, out, n);
+            continue;
+        }
         if (!is_picture(e.d_name) || e.d_stat.st_size < 1024) continue;
         Pic *q = &out[(*n)++];
         snprintf(q->path, sizeof(q->path), "%s", p);
         q->when = e.d_stat.st_mtime;
         q->size = (unsigned int)e.d_stat.st_size;
+        q->game[0] = 0;
+        if (game && game[0]) snprintf(q->game, sizeof(q->game), "%s", game);
         char tp[80];
         SceIoStat st;
         thumb_path(p, tp, sizeof(tp));
@@ -161,7 +224,7 @@ static int roll_scan(SceSize args, void *argp) {
     (void)args; (void)argp;
     static Pic found[MAX_PICS];
     int n = 0;
-    walk("ux0:picture", 0, found, &n);
+    walk("ux0:picture", 0, NULL, found, &n);
     qsort(found, n, sizeof(Pic), newer);
     sceKernelWaitSema(roll_lock, 1, NULL);
     memcpy(pics, found, n * sizeof(Pic));
@@ -386,10 +449,10 @@ void camera_draw_icon(int kind, float x, float y, float size) {
 
 void camera_open(int roll) {
     rescan();
-    if (roll) { mode = M_ROLL; return; }
+    if (roll) { mode = M_HOME; return; }
     mode = M_FINDER;
     idle = 0;
-    if (cam_start() < 0) mode = M_ROLL;
+    if (cam_start() < 0) mode = M_HOME;
 }
 
 void camera_leave(void) {
@@ -400,8 +463,12 @@ void camera_leave(void) {
 int camera_active(void) { return mode != M_OFF; }
 int camera_fullscreen(void) { return mode == M_FINDER || mode == M_VIEW; }
 
+/* Back from the camera always lands on the roll, not wherever Screenshots was left. */
+static void to_roll(void) { mode = M_HOME; section = SEC_CAMERA; sel = 0; }
+
 const char *camera_hint(void) {
-    if (mode == M_ROLL) return "X view  [] delete  START camera  O back  L R tabs";
+    if (mode == M_ALBUM) return "X view  [] delete  O back  L R tabs";
+    if (mode == M_HOME) return chips ? "<- -> section  X open  L R tabs" : "X view  [] delete  START camera  O back  L R tabs";
     return "";
 }
 
@@ -415,13 +482,13 @@ static void pill_text(float x, float y, const char *s, unsigned int c) {
 
 static void finder_frame(const Input *in) {
     if (in->pressed || in->touching) idle = 0;
-    if (++idle > IDLE_FRAMES) { cam_stop(); mode = M_ROLL; ui_toast("Camera closed to save power", C_ACCENT); return; }
+    if (++idle > IDLE_FRAMES) { cam_stop(); to_roll(); ui_toast("Camera closed to save power", C_ACCENT); return; }
     if (in->pressed & SCE_CTRL_CIRCLE) { cam_stop(); mode = M_OFF; return; }
-    if (in->pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_L1 | SCE_CTRL_START)) { cam_stop(); mode = M_ROLL; sel = 0; return; }
+    if (in->pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_L1 | SCE_CTRL_START)) { cam_stop(); to_roll(); return; }
     if (in->pressed & SCE_CTRL_TRIANGLE) {
         cam_stop();
         dev = dev == SCE_CAMERA_DEVICE_BACK ? SCE_CAMERA_DEVICE_FRONT : SCE_CAMERA_DEVICE_BACK;
-        if (cam_start() < 0) { mode = M_ROLL; return; }
+        if (cam_start() < 0) { to_roll(); return; }
     }
     if (in->pressed & SCE_CTRL_SQUARE) {
         effect = (effect + 1) % NEFFECTS;
@@ -431,15 +498,15 @@ static void finder_frame(const Input *in) {
     if (flip_tap) {
         cam_stop();
         dev = dev == SCE_CAMERA_DEVICE_BACK ? SCE_CAMERA_DEVICE_FRONT : SCE_CAMERA_DEVICE_BACK;
-        if (cam_start() < 0) { mode = M_ROLL; return; }
+        if (cam_start() < 0) { to_roll(); return; }
     }
     int shutter_tap = in->tapped && in->tap_x > W - 130 && in->tap_y > H / 2 - 60 && in->tap_y < H / 2 + 60;
     int thumb_tap = in->tapped && in->tap_x < 130 && in->tap_y > H - 125 && in->tap_y < H - 44;
     /* R is the shutter, where a camera's is (playtest 2026-09-25); X and a tap work too. */
     if ((in->pressed & (SCE_CTRL_CROSS | SCE_CTRL_RTRIGGER | SCE_CTRL_R1)) || shutter_tap) take_picture();
-    if (thumb_tap) { cam_stop(); mode = M_ROLL; sel = 0; return; }
+    if (thumb_tap) { cam_stop(); to_roll(); return; }
 
-    if (cam_failed) { cam_failed = 0; mode = M_ROLL; return; }
+    if (cam_failed) { cam_failed = 0; to_roll(); return; }
     if (cam_on) {
         SceCameraRead rd;
         memset(&rd, 0, sizeof(rd));
@@ -476,10 +543,14 @@ static void finder_frame(const Input *in) {
 
     /* the last shot, bottom left; a new one flies in from full frame */
     vita2d_texture *lt = last_thumb[0] ? ui_image(last_thumb) : NULL;
-    if (!lt && npics && pics[0].thumbed > 0) {
-        static char tp[80];
-        thumb_path(pics[0].path, tp, sizeof(tp));
-        lt = ui_image(tp);
+    if (!lt) {
+        for (int i = 0; i < npics; ++i) {                 /* newest camera shot, not a screenshot from any game */
+            if (pics[i].game[0] || pics[i].thumbed <= 0) continue;
+            static char tp[80];
+            thumb_path(pics[i].path, tp, sizeof(tp));
+            lt = ui_image(tp);
+            break;
+        }
     }
     if (lt) {
         float k = fly > 0 ? fly * fly : 0;
@@ -493,9 +564,26 @@ static void finder_frame(const Input *in) {
     draw_hints(140, H - 20, "R shutter  /\\ flip  [] effect  L photos  O close", C_TEXT, W - 20);
 }
 
-static void roll_title(int n) {
+/* Chips at GRID_Y's usual spot, the way Music's section bar works: drawn
+ * last so rows scrolled up pass under it, tapped/steered before the grid
+ * below gets the input. */
+static void photos_chips(void) {
+    draw_gradient(0, 65, W, 50, C_BG, C_BG, C_BG, (C_BG & 0x00FFFFFF) | 0xE0000000);
+    int cx = GRID_X;
+    for (int k = 0; k < NSEC; ++k) {
+        int w = text_w(font, 15, SECT[k]) + 30;
+        if (chips && k == section) draw_focus(cx, 78, w, 30, 1);
+        draw_round_rect(cx, 78, w, 30, 15, k == section ? RGBA8(245, 245, 250, 255) : RGBA8(255, 255, 255, 26));
+        text(font, cx + 15, 99, k == section ? RGBA8(15, 15, 20, 255) : C_TEXT, 15, SECT[k]);
+        cx += w + 10;
+    }
+}
+
+/* A plain title bar for a page under a chip (an open album), Circle-back
+ * instead of a chip row. */
+static void section_title(const char *title, int n) {
     draw_gradient(0, 65, W, GRID_Y - 69, C_BG, C_BG, (C_BG & 0x00FFFFFF) | 0xE0000000, (C_BG & 0x00FFFFFF) | 0xE0000000);
-    text(bold, GRID_X + 4, GRID_Y - 16, C_TEXT, 20, "Photos");
+    text(bold, GRID_X + 4, GRID_Y - 16, C_TEXT, 20, title);
     if (n) {
         char count[24];
         snprintf(count, sizeof(count), "%d", n);
@@ -517,69 +605,160 @@ static int delete_pic(const char *path) {
     sceKernelWaitSema(roll_lock, 1, NULL);
     for (int k = 0; k < npics; ++k)
         if (!strcmp(pics[k].path, path)) { memmove(&pics[k], &pics[k + 1], (npics - k - 1) * sizeof(Pic)); --npics; break; }
-    if (sel >= npics && sel) --sel;
     sceKernelSignalSema(roll_lock, 1);
     ui_toast("Photo deleted", C_ACCENT);
     return 1;
 }
 
-static void roll_frame(const Input *in) {
-    if (in->pressed & SCE_CTRL_START) { camera_open(0); return; }
-    if (in->pressed & SCE_CTRL_CIRCLE) { mode = M_OFF; return; }
-    if ((in->pressed & SCE_CTRL_SQUARE) && sel < npics) {          /* delete from the grid too */
+/* The camera roll (SEC_CAMERA, mode M_HOME) or one open album's shots (mode
+ * M_ALBUM): both are just a filtered, newest-first slice of pics[], so one
+ * grid draws either. Returns the slice's count, for the caller's header. */
+static int pic_grid_frame(const Input *in) {
+    if (in->pressed & SCE_CTRL_SQUARE) {                  /* delete from the grid too */
+        sceKernelWaitSema(roll_lock, 1, NULL);
+        static int didxs[MAX_PICS];
+        int dn = build_cur(didxs);
         char path[160];
-        snprintf(path, sizeof(path), "%s", pics[sel].path);
-        delete_pic(path);
+        int has = sel < dn;
+        if (has) snprintf(path, sizeof(path), "%s", pics[didxs[sel]].path);
+        sceKernelSignalSema(roll_lock, 1);
+        if (has) delete_pic(path);
     }
     sceKernelWaitSema(roll_lock, 1, NULL);
-    int n = npics;
+    static int idxs[MAX_PICS];
+    int n = build_cur(idxs);
+    if (sel >= n) sel = n ? n - 1 : 0;
     if (n) {
         if (in->pressed & SCE_CTRL_LEFT) sel = sel > 0 ? sel - 1 : 0;
         if (in->pressed & SCE_CTRL_RIGHT) sel = sel < n - 1 ? sel + 1 : sel;
-        if (in->pressed & SCE_CTRL_UP) sel = sel >= COLS ? sel - COLS : sel;
+        if (in->pressed & SCE_CTRL_UP) { if (sel >= COLS) sel -= COLS; else if (mode != M_ALBUM) chips = 1; }
         if (in->pressed & SCE_CTRL_DOWN) sel = sel + COLS < n ? sel + COLS : n - 1;
-        if (in->pressed & SCE_CTRL_CROSS) mode = M_VIEW;
+        if (in->pressed & SCE_CTRL_CROSS) { view_from_album = mode == M_ALBUM; mode = M_VIEW; }
     }
-    static GridScroll gs;
-    grid_scroll(&gs, &sel, COLS, n, 2, CELL_H, in);
+    static GridScroll gs[2];                              /* [0] the camera roll, [1] inside an album */
+    GridScroll *g = &gs[mode == M_ALBUM];
+    grid_scroll(g, &sel, COLS, n, 2, CELL_H, in);
     if (in->tapped && in->tap_y > GRID_Y && in->tap_y < H - 40) {
-        int c = (in->tap_x - GRID_X) / CELL_W, r = (int)(gs.top + (in->tap_y - GRID_Y) / (float)CELL_H), idx = r * COLS + c;
-        if (c >= 0 && c < COLS && idx >= 0 && idx < n) { if (idx == sel) mode = M_VIEW; else sel = idx; }
+        int c = (in->tap_x - GRID_X) / CELL_W, r = (int)(g->top + (in->tap_y - GRID_Y) / (float)CELL_H), idx = r * COLS + c;
+        if (c >= 0 && c < COLS && idx >= 0 && idx < n) { if (idx == sel) { view_from_album = mode == M_ALBUM; mode = M_VIEW; } else sel = idx; }
     }
     if (!n) {
-        roll_title(0);
         sceKernelSignalSema(roll_lock, 1);
-        text(font, 40, 170, C_DIM, 18, scanned ? "No photos yet. Press START to open the camera." : "Looking for photos\xE2\x80\xA6");
-        return;
+        if (mode == M_ALBUM) text(font, 40, 170, C_DIM, 18, "No screenshots in this album yet.");
+        else text(font, 40, 170, C_DIM, 18, scanned ? "No photos yet. Press START to open the camera." : "Looking for photos\xE2\x80\xA6");
+        return 0;
     }
     for (int i = 0; i < n; ++i) {
-        float y = GRID_Y + (i / COLS - gs.top) * CELL_H;
+        float y = GRID_Y + (i / COLS - g->top) * CELL_H;
         if (y < GRID_Y - CELL_H || y > H - 40) continue;
         float x = GRID_X + (i % COLS) * CELL_W, w = CELL_W - 12, h = CELL_H - 12;
-        if (i == sel) draw_focus(x, y, w, h, 1);
+        if (i == sel && !chips) draw_focus(x, y, w, h, 1);
+        Pic *pc = &pics[idxs[i]];
         char tp[80];
-        thumb_path(pics[i].path, tp, sizeof(tp));
-        vita2d_texture *t = pics[i].thumbed > 0 ? ui_image(tp) : NULL;
+        thumb_path(pc->path, tp, sizeof(tp));
+        vita2d_texture *t = pc->thumbed > 0 ? ui_image(tp) : NULL;
         if (t) {
             draw_round_texture(t, x, y, w, h, ui_corner(w, h), RGBA8(255, 255, 255, i == sel ? 255 : 225));
-        } else if (pics[i].thumbed < 0) {
+        } else if (pc->thumbed < 0) {
             draw_round_rect(x, y, w, h, 8, RGBA8(36, 41, 56, 255));
-            text_fit(font, (int)x + 10, (int)(y + h / 2 + 5), C_FAINT, 13, strrchr(pics[i].path, '/') + 1, (int)w - 20);
+            text_fit(font, (int)x + 10, (int)(y + h / 2 + 5), C_FAINT, 13, strrchr(pc->path, '/') + 1, (int)w - 20);
         } else {
             draw_round_rect(x, y, w, h, 8, RGBA8(36, 41, 56, 255));
             draw_shimmer(x, y, w, h);
         }
     }
     sceKernelSignalSema(roll_lock, 1);
-    roll_title(n);                                /* last, over rows scrolled up under it */
+    return n;
+}
+
+/* Screenshots' own grid, one tile per game (SEC_SHOTS, mode M_HOME). */
+static void albums_grid_frame(const Input *in) {
+    sceKernelWaitSema(roll_lock, 1, NULL);
+    build_albums();
+    int n = nalbums;
+    if (sel_album >= n) sel_album = n ? n - 1 : 0;
+    if (n) {
+        if (in->pressed & SCE_CTRL_LEFT) sel_album = sel_album > 0 ? sel_album - 1 : 0;
+        if (in->pressed & SCE_CTRL_RIGHT) sel_album = sel_album < n - 1 ? sel_album + 1 : sel_album;
+        if (in->pressed & SCE_CTRL_UP) { if (sel_album >= COLS) sel_album -= COLS; else chips = 1; }
+        if (in->pressed & SCE_CTRL_DOWN) sel_album = sel_album + COLS < n ? sel_album + COLS : n - 1;
+    }
+    int open_ix = (n && (in->pressed & SCE_CTRL_CROSS)) ? sel_album : -1;
+    static GridScroll gs;
+    grid_scroll(&gs, &sel_album, COLS, n, 2, CELL_H_ALB, in);
+    if (in->tapped && in->tap_y > GRID_Y && in->tap_y < H - 40) {
+        int c = (in->tap_x - GRID_X) / CELL_W, r = (int)(gs.top + (in->tap_y - GRID_Y) / (float)CELL_H_ALB), idx = r * COLS + c;
+        if (c >= 0 && c < COLS && idx >= 0 && idx < n) { if (idx == sel_album) open_ix = idx; else sel_album = idx; }
+    }
+    char opened[48];
+    if (open_ix >= 0) snprintf(opened, sizeof(opened), "%s", albums[open_ix].game);
+    if (!n) {
+        sceKernelSignalSema(roll_lock, 1);
+        text(font, 40, 170, C_DIM, 18, scanned ? "No screenshots yet. PS + START on any game saves one." : "Looking for photos\xE2\x80\xA6");
+        return;
+    }
+    for (int i = 0; i < n; ++i) {
+        float y = GRID_Y + (i / COLS - gs.top) * CELL_H_ALB;
+        if (y < GRID_Y - CELL_H_ALB || y > H - 40) continue;
+        float x = GRID_X + (i % COLS) * CELL_W, w = CELL_W - 12;
+        if (i == sel_album && !chips) draw_focus(x, y, w, w, 1);
+        char tp[80];
+        thumb_path(pics[albums[i].cover].path, tp, sizeof(tp));
+        vita2d_texture *t = pics[albums[i].cover].thumbed > 0 ? ui_image(tp) : NULL;
+        if (t) draw_round_texture(t, x, y, w, w, ui_corner(w, w), RGBA8(255, 255, 255, i == sel_album ? 255 : 225));
+        else { draw_round_rect(x, y, w, w, 8, RGBA8(36, 41, 56, 255)); draw_shimmer(x, y, w, w); }
+        text_fit(i == sel_album ? bold : font, (int)x, (int)(y + w + 18), i == sel_album ? C_TEXT : C_DIM, 14, albums[i].game, (int)w);
+        char cnt[24];
+        snprintf(cnt, sizeof(cnt), "%d shot%s", albums[i].count, albums[i].count == 1 ? "" : "s");
+        text(font, (int)x, (int)(y + w + 34), C_FAINT, 12, cnt);
+    }
+    sceKernelSignalSema(roll_lock, 1);
+    if (open_ix >= 0) { snprintf(album_game, sizeof(album_game), "%s", opened); mode = M_ALBUM; sel = 0; }
+}
+
+/* The dispatcher for mode M_HOME (chips + whichever section's grid) and
+ * M_ALBUM (one album, Circle back to its grid). */
+static void photos_frame(const Input *in) {
+    if (in->pressed & SCE_CTRL_START) { camera_open(0); return; }
+    unsigned int p = in->pressed;
+    if (mode == M_ALBUM) {
+        if (p & SCE_CTRL_CIRCLE) { mode = M_HOME; return; }
+    } else if (chips) {
+        if (p & SCE_CTRL_LEFT && section > 0) { --section; sel = 0; }
+        if (p & SCE_CTRL_RIGHT && section < NSEC - 1) { ++section; sel = 0; }
+        if (p & (SCE_CTRL_DOWN | SCE_CTRL_CROSS)) chips = 0;
+        p = 0;
+    } else if (p & SCE_CTRL_CIRCLE) { mode = M_OFF; return; }
+
+    if (mode == M_HOME) {
+        int cx = GRID_X;
+        for (int k = 0; k < NSEC; ++k) {                  /* chip taps, before the grid below sees them */
+            int w = text_w(font, 15, SECT[k]) + 30;
+            if (in->tapped && in->tap_x >= cx && in->tap_x < cx + w && in->tap_y >= 74 && in->tap_y < 112) { section = k; sel = 0; p = 0; }
+            cx += w + 10;
+        }
+    }
+    Input in2 = *in;
+    in2.pressed = p;
+    if (mode == M_HOME && in2.tapped && in2.tap_y < 112) in2.tapped = 0;
+
+    if (mode == M_ALBUM) {
+        int n = pic_grid_frame(&in2);
+        section_title(album_game, n);
+        return;
+    }
+    if (section == SEC_CAMERA) pic_grid_frame(&in2);
+    else albums_grid_frame(&in2);
+    photos_chips();                                       /* last, over rows scrolled up under it */
 }
 
 static void view_frame(const Input *in) {
     sceKernelWaitSema(roll_lock, 1, NULL);
-    int n = npics;
-    if (!n) { sceKernelSignalSema(roll_lock, 1); mode = M_ROLL; return; }
+    static int idxs[MAX_PICS];
+    int n = build_cur(idxs);
+    if (!n) { sceKernelSignalSema(roll_lock, 1); mode = view_from_album ? M_ALBUM : M_HOME; return; }
     if (sel >= n) sel = n - 1;
-    Pic p = pics[sel];
+    Pic p = pics[idxs[sel]];
     sceKernelSignalSema(roll_lock, 1);
     static float swipe;
     if (in->touching) swipe += in->drag_dx;
@@ -590,8 +769,8 @@ static void view_frame(const Input *in) {
     }
     if (in->pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER | SCE_CTRL_R1)) sel = sel < n - 1 ? sel + 1 : sel;
     if (in->pressed & (SCE_CTRL_LEFT | SCE_CTRL_LTRIGGER | SCE_CTRL_L1)) sel = sel > 0 ? sel - 1 : 0;
-    if (in->pressed & SCE_CTRL_CIRCLE) { mode = M_ROLL; return; }
-    if ((in->pressed & SCE_CTRL_SQUARE) && delete_pic(p.path)) return;
+    if (in->pressed & SCE_CTRL_CIRCLE) { mode = view_from_album ? M_ALBUM : M_HOME; return; }
+    if ((in->pressed & SCE_CTRL_SQUARE) && delete_pic(p.path)) { mode = view_from_album ? M_ALBUM : M_HOME; return; }
     vita2d_draw_rectangle(0, 0, W, H, RGBA8(0, 0, 0, 255));
     vita2d_texture *t = ui_image(p.path);
     if (!t) {                                     /* the thumbnail, blown up, while the full one loads */
@@ -621,7 +800,7 @@ void camera_update(const Input *in) {
     if (roll_lock < 0) roll_lock = sceKernelCreateSema("roll_lock", 0, 1, 1, NULL);
     switch (mode) {
     case M_FINDER: finder_frame(in); break;
-    case M_ROLL: roll_frame(in); break;
+    case M_HOME: case M_ALBUM: photos_frame(in); break;
     case M_VIEW: view_frame(in); break;
     }
 }

@@ -12,5 +12,6 @@ int store_fetch(const char *url, const char *dest);   /* HTTPS to a file; <0 on 
 int store_match(const char *headline);   /* the app a news headline names, or -1 */
 void store_show(int app);                /* open its page in the Store */
 int store_uninstall(const char *tid, const char *name);   /* async; toasts the result, rescans Apps */
+int store_updates_count(void);           /* installed apps behind the catalogue; for a Home badge */
 
 #endif

@@ -31,6 +31,8 @@
 #include "library.h"
 #include "update.h"
 #include "news.h"
+#include "demo.h"
+#include "playtime.h"
 #include "memo.h"
 #include "files.h"
 #include "downloads.h"
@@ -544,6 +546,7 @@ int main(void) {
     int lib_ours = library_is_ours();
     if (lib_ours < 0) library_first_scan();
     play_init();                 /* catalog, lists, the agent remote, launch requests */
+    playtime_init();             /* the time of a game Home launched before it closed */
     if (lib_ours > 0) library_rescan_start();
     int net = net_up();
     files_init();
@@ -580,6 +583,9 @@ int main(void) {
         }
         STAGE("input");
         ui_read_input(&in);
+        demo_poll();                             /* a scripted tour for recordings (demo.req) */
+        demo_input(&in);
+        if (demo_running()) { ui_agent_active = 0; agent_seen = 0; }   /* the recording shows the OS, not the tooling */
         int was = tab;
         if (ps_relock == 2) { ps_relock = 0; if (!ps_free_frames) lock_ps(1); }   /* awake again */
         int ps = ps_button(&in);
@@ -677,6 +683,7 @@ int main(void) {
         if (!(tab == T_PLAY && play_fullscreen()) && !(tab == T_MOVIES && movies_fullscreen()) &&
             !(tab == T_APPS && camera_fullscreen())) {
             draw_header(TABS, NTABS, tab, context);
+            if (demo_running()) ui_agent_active = 0;      /* again: housekeeping may have set it this frame */
             int rx = draw_footer_r(hint, bar ? 330 : 0);
             if (bar && music_bar(&in, rx + 8, 318)) open_music = 1;
         }

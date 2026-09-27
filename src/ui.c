@@ -33,7 +33,49 @@ void ui_theme_color(unsigned int c) {
     acc_to[0] = c & 0xFF; acc_to[1] = (c >> 8) & 0xFF; acc_to[2] = (c >> 16) & 0xFF;
 }
 
-void ui_theme_default(void) { ui_theme_color(C_ACCENT_DEFAULT); }
+/* Settings > Theme: pin the accent to one of these instead of the art. */
+static const unsigned int THEME_ACCENTS[6] = {
+    C_ACCENT_DEFAULT, RGBA8(168, 120, 255, 255), RGBA8(255, 120, 190, 255),
+    RGBA8(255, 150, 70, 255), RGBA8(110, 220, 110, 255), RGBA8(70, 210, 200, 255),
+};
+static const char *const THEME_ACCENT_NAMES[6] = {"Blue", "Purple", "Pink", "Orange", "Green", "Teal"};
+static int theme_accent_idx = -1;    /* -1 = match the art */
+
+void ui_theme_set_accent(int idx) { theme_accent_idx = idx < -1 || idx > 5 ? -1 : idx; }
+int ui_theme_accent_index(void) { return theme_accent_idx; }
+const char *ui_theme_accent_name(int idx) { return idx >= 0 && idx < 6 ? THEME_ACCENT_NAMES[idx] : "Match the art"; }
+
+void ui_theme_default(void) { ui_theme_color(theme_accent_idx >= 0 ? THEME_ACCENTS[theme_accent_idx] : C_ACCENT_DEFAULT); }
+
+/* Settings > Theme: the background behind tabs with no backdrop art. */
+static ThemeBg theme_bg = THEME_BG_AURORA;
+static char theme_wallpaper[64] = "";
+
+void ui_theme_set_bg(ThemeBg bg, const char *wallpaper) {
+    theme_bg = bg;
+    if (bg == THEME_BG_WALLPAPER && wallpaper) snprintf(theme_wallpaper, sizeof(theme_wallpaper), "%s", wallpaper);
+}
+ThemeBg ui_theme_bg(void) { return theme_bg; }
+const char *ui_theme_bg_name(ThemeBg bg) {
+    switch (bg) { case THEME_BG_PLAIN: return "Plain"; case THEME_BG_MIDNIGHT: return "Midnight";
+                  case THEME_BG_WALLPAPER: return "Wallpaper"; default: return "Aurora"; }
+}
+const char *ui_theme_wallpaper(void) { return theme_wallpaper; }
+
+#define THEME_CFG "ux0:data/arcadehub/user/theme.cfg"
+void ui_theme_load(void) {
+    char b[128] = {0};
+    SceUID fd = sceIoOpen(THEME_CFG, SCE_O_RDONLY, 0);
+    if (fd < 0) return;                                   /* no file yet: match the art, Aurora */
+    sceIoRead(fd, b, sizeof(b) - 1);
+    sceIoClose(fd);
+    int a = -1, bgv = 0;
+    char w[64] = "-";
+    if (sscanf(b, "%d %d %63s", &a, &bgv, w) < 2) return;
+    ui_theme_set_accent(a);
+    theme_bg = bgv < 0 || bgv > THEME_BG_WALLPAPER ? THEME_BG_AURORA : (ThemeBg)bgv;
+    if (theme_bg == THEME_BG_WALLPAPER && strcmp(w, "-")) snprintf(theme_wallpaper, sizeof(theme_wallpaper), "%s", w);
+}
 
 /* The most vivid colour that covers a good part of the art: hue buckets
  * weighted by saturation and brightness, then lifted so it reads on the dark
@@ -79,7 +121,10 @@ static unsigned int art_accent(vita2d_texture *t) {
     return result;
 }
 
-void ui_theme_from(vita2d_texture *art) { if (art) ui_theme_color(art_accent(art)); else ui_theme_default(); }
+void ui_theme_from(vita2d_texture *art) {
+    if (theme_accent_idx >= 0) { ui_theme_color(THEME_ACCENTS[theme_accent_idx]); return; }   /* pinned: ignore the art */
+    if (art) ui_theme_color(art_accent(art)); else ui_theme_default();
+}
 
 /* Frames are drawn into an offscreen target and then shown, so a dialog can
  * blur whatever was on screen behind it (PS5-style). blur_rt is a small
@@ -615,7 +660,33 @@ static void ribbon(float t, float base, float amp, float k, float speed, float t
     vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, v, 2 * (N + 1));
 }
 
+/* The wallpaper, scaled to cover the screen (crops, never letterboxes). */
+static void draw_wallpaper_cover(vita2d_texture *t) {
+    float tw = vita2d_texture_get_width(t), th = vita2d_texture_get_height(t);
+    float s = (float)W / tw > (float)H / th ? (float)W / tw : (float)H / th;
+    float dw = tw * s, dh = th * s;
+    vita2d_draw_texture_tint_scale(t, (W - dw) / 2, (H - dh) / 2, s, s, RGBA8(255, 255, 255, 255));
+}
+
 void ui_ambient(float strength) {
+    if (theme_bg == THEME_BG_PLAIN) return;                         /* calm: no glow, no ribbons, no motes */
+    if (theme_bg == THEME_BG_MIDNIGHT) {
+        vita2d_draw_rectangle(0, 0, W, H, RGBA8(0, 0, 0, 70));       /* darker, before the (dimmer) glow */
+        strength *= 0.35f;
+    }
+    /* strength is 1.0 only where the caller has no backdrop art of its own
+     * (Home and Play pass less, to lay the glow over their art instead): the
+     * wallpaper stands in for the glow there, never under their own art. */
+    if (theme_bg == THEME_BG_WALLPAPER && theme_wallpaper[0] && strength > 0.9f) {
+        char path[100];
+        snprintf(path, sizeof(path), "ux0:data/arcadehub/wallpapers/%s", theme_wallpaper);
+        vita2d_texture *w = ui_image(path);
+        if (w) {
+            draw_wallpaper_cover(w);
+            vita2d_draw_rectangle(0, 0, W, H, RGBA8(0, 0, 0, 110));  /* scrim: text stays readable */
+            return;
+        }
+    }
     float t = frames / 60.0f;
     unsigned int acc = ui_accent, cool = RGBA8(90, 120, 255, 255), warm = RGBA8(200, 90, 255, 255);
     vita2d_texture *g = ui_glow();
@@ -767,6 +838,7 @@ void ui_init(void) {
     sceMotionStartSampling();
     font = uifont_load("app0:assets/Inter-Regular.ttf");
     bold = uifont_load("app0:assets/Inter-Bold.ttf");
+    ui_theme_load();
 }
 
 #define REPEAT_DELAY_US 350000

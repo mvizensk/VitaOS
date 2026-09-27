@@ -4,12 +4,14 @@
  * focusable rows are brightness, volume, restart and sleep. */
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <psp2/ctrl.h>
 #include <psp2/appmgr.h>
 #include <psp2/power.h>
 #include <psp2/avconfig.h>
 #include <psp2/registrymgr.h>
 #include <psp2/io/devctl.h>
+#include <psp2/io/dirent.h>
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
 #include <psp2/kernel/processmgr.h>
@@ -37,7 +39,7 @@ static volatile SceUInt64 wanted_until;     /* the tab is on screen: keep the nu
 static int brightness = -1, volume = -1, focus;
 static SceUInt64 last;
 
-enum { F_BRIGHT, F_VOLUME, F_SFX, F_AMBIENT, F_STORAGE, F_WEATHER, F_BLUETOOTH, F_ABOUT, F_BUBBLES, F_SLEEP, F_RESTART, F_POWEROFF, NFOCUS };
+enum { F_BRIGHT, F_VOLUME, F_SFX, F_AMBIENT, F_STORAGE, F_WEATHER, F_BLUETOOTH, F_ABOUT, F_THEME, F_BUBBLES, F_SLEEP, F_RESTART, F_POWEROFF, NFOCUS };
 static void (*release_ps)(void);
 void settings_on_release_ps(void (*fn)(void)) { release_ps = fn; }
 static void (*lib_rescan)(void), (*lib_art)(void);
@@ -174,6 +176,73 @@ static void weather_pick(void) {
     ui_toast(msg, C_OK);
 }
 
+#define WALLPAPER_DIR "ux0:data/arcadehub/wallpapers/"
+#define THEME_CFG "ux0:data/arcadehub/user/theme.cfg"
+
+static void theme_save(void) {
+    char b[128];
+    const char *w = ui_theme_wallpaper();
+    int n = snprintf(b, sizeof(b), "%d %d %s\n", ui_theme_accent_index(), (int)ui_theme_bg(), w[0] ? w : "-");
+    ui_save(THEME_CFG, b, n, 0);
+}
+
+/* Settings > Theme > Background > Wallpaper: whatever JPG/PNG sits in the folder. */
+static void wallpaper_pick(void) {
+    static char names[8][256];   /* SceIoDirent's own d_name size: no truncation warning */
+    int n = 0;
+    SceUID d = sceIoDopen(WALLPAPER_DIR);
+    if (d >= 0) {
+        SceIoDirent e;
+        while (n < 8) {
+            memset(&e, 0, sizeof(e));
+            if (sceIoDread(d, &e) <= 0) break;
+            if (e.d_name[0] == '.' || SCE_S_ISDIR(e.d_stat.st_mode)) continue;
+            const char *dot = strrchr(e.d_name, '.');
+            if (!dot || (strcasecmp(dot, ".jpg") && strcasecmp(dot, ".jpeg") && strcasecmp(dot, ".png"))) continue;
+            snprintf(names[n], sizeof(names[n]), "%s", e.d_name);
+            ++n;
+        }
+        sceIoDclose(d);
+    }
+    if (!n) {
+        ui_message("Wallpaper", "No pictures yet. Put a JPG or PNG in ux0:data/arcadehub/wallpapers/ and come back.");
+        return;
+    }
+    const char *items[8];
+    for (int i = 0; i < n; ++i) items[i] = names[i];
+    int k = ui_menu("Wallpaper", items, n);
+    if (k < 0) return;
+    ui_theme_set_bg(THEME_BG_WALLPAPER, names[k]);
+    theme_save();
+    ui_toast("Wallpaper set", C_OK);
+}
+
+/* Settings > Theme: the accent (follow the art, or a fixed colour) and the
+ * background behind tabs with no art of their own. */
+static void theme_pick(void) {
+    char row1[64], row2[64];
+    snprintf(row1, sizeof(row1), "Accent: %s", ui_theme_accent_name(ui_theme_accent_index()));
+    snprintf(row2, sizeof(row2), "Background: %s", ui_theme_bg_name(ui_theme_bg()));
+    const char *items[2] = {row1, row2};
+    int k = ui_menu("Theme", items, 2);
+    if (k == 0) {
+        static const char *const acc_items[] = {"Match the art", "Blue", "Purple", "Pink", "Orange", "Green", "Teal"};
+        int a = ui_menu("Accent colour", acc_items, 7);
+        if (a < 0) return;
+        ui_theme_set_accent(a - 1);
+        theme_save();
+        ui_toast(a == 0 ? "Accent: match the art" : "Accent set", C_ACCENT);
+    } else if (k == 1) {
+        static const char *const bg_items[] = {"Aurora", "Plain", "Midnight", "Wallpaper"};
+        int b = ui_menu("Background", bg_items, 4);
+        if (b < 0) return;
+        if (b == THEME_BG_WALLPAPER) { wallpaper_pick(); return; }   /* its own picker, and its own save */
+        ui_theme_set_bg((ThemeBg)b, NULL);
+        theme_save();
+        ui_toast("Background set", C_ACCENT);
+    }
+}
+
 static void card(int x, int y, int w, int h, const char *title) {
     vita2d_draw_rectangle(x, y, w, h, C_PANEL);
     text(bold, x + 18, y + 30, C_TEXT, 19, title);
@@ -267,7 +336,7 @@ void settings_update(const Input *in) {
     /* The four system buttons sit in a row: left/right moves along it, up
      * leaves it; everywhere else up/down steps through the rows. */
     int sysrow = focus >= F_BUBBLES;
-    if (in->pressed & SCE_CTRL_UP) focus = sysrow ? F_ABOUT : (focus + NFOCUS - 1) % NFOCUS;
+    if (in->pressed & SCE_CTRL_UP) focus = sysrow ? F_THEME : (focus + NFOCUS - 1) % NFOCUS;   /* Theme sits just above the system row */
     if (in->pressed & SCE_CTRL_DOWN) focus = sysrow ? focus : focus + 1;
     if (sysrow && (in->pressed & SCE_CTRL_LEFT) && focus > F_BUBBLES) focus--;
     if (sysrow && (in->pressed & SCE_CTRL_RIGHT) && focus < F_POWEROFF) focus++;
@@ -280,6 +349,7 @@ void settings_update(const Input *in) {
         if (focus == F_STORAGE) storage_open();
         if (focus == F_BUBBLES && release_ps) release_ps();
         if (focus == F_WEATHER) weather_pick();
+        if (focus == F_THEME) theme_pick();
         static char get_label[40];
         const char *vitaos_items[4] = {"Find games again", "Download box art", "About VitaOS", get_label};
         const char *newer = update_newer();
@@ -395,4 +465,15 @@ void settings_update(const Input *in) {
     const char *what = focus == F_BUBBLES ? "PS opens the bubbles for 30 s" : focus == F_SLEEP ? "Wi-Fi off: agents lose the console"
                      : focus == F_RESTART ? "Back in about a minute" : focus == F_POWEROFF ? "Hold power to turn it back on" : "";
     text_fit(font, C3 + 18, R2 + CH - 14, C_FAINT, 13, what, CW - 36);
+
+    /* A slim full-width row for Theme, in the gap below the two card rows. */
+    {
+        char t[160];
+        snprintf(t, sizeof(t), "X Theme: %s accent, %s background",
+                 ui_theme_accent_name(ui_theme_accent_index()), ui_theme_bg_name(ui_theme_bg()));
+        int ty = R2 + CH + 6;
+        if (in->tapped && in->tap_x >= C1 && in->tap_x < C3 + CW && in->tap_y >= ty && in->tap_y < ty + 28) focus = F_THEME;
+        if (focus == F_THEME) vita2d_draw_rectangle(C1 + 2, ty, C3 + CW - C1 - 4, 28, C_SEL);
+        draw_hints(C1 + 18, ty + 14, t, focus == F_THEME ? C_TEXT : C_DIM, C3 + CW - 20);
+    }
 }

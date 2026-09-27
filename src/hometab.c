@@ -20,13 +20,14 @@
 #include "video.h"
 #include "news.h"
 #include "store.h"
+#include "playtime.h"
 #include <psp2/rtc.h>
 #include <psp2/power.h>
 
-enum { K_GAME, K_MOVIE, K_MUSIC, K_NEWS };
+enum { K_GAME, K_MOVIE, K_MUSIC, K_NEWS, K_WEEK };
 typedef struct {
     int kind, index;
-    const char *title, *kicker, *meta1, *meta2;
+    const char *title, *kicker, *meta1, *meta2, *meta3;
     vita2d_texture *tile, *art;
     unsigned int accent;
     int resume;                               /* art is RetroArch's quick-resume snapshot */
@@ -57,7 +58,7 @@ static void add_movie(void) {
     if (!m || nitems >= MAX_ITEMS) return;
     if (at >= 3600000) snprintf(meta, sizeof(meta), "Resume at %u:%02u:%02u", at / 3600000, at / 60000 % 60, at / 1000 % 60);
     else snprintf(meta, sizeof(meta), "Resume at %u:%02u", at / 60000, at / 1000 % 60);
-    items[nitems++] = (Item){K_MOVIE, m - 1, title, "CONTINUE WATCHING", meta, "Movies", poster, poster, C_ACCENT};
+    items[nitems++] = (Item){K_MOVIE, m - 1, title, "CONTINUE WATCHING", meta, "Movies", "", poster, poster, C_ACCENT};
 }
 
 static void add_music(void) {
@@ -65,7 +66,7 @@ static void add_music(void) {
     vita2d_texture *art;
     int now;
     if (nitems >= MAX_ITEMS || !music_last_item(&album, &artist, &art, &now)) return;
-    items[nitems++] = (Item){K_MUSIC, 0, album, now ? "NOW PLAYING" : "CONTINUE LISTENING", artist, "Music", art, art, C_OK};
+    items[nitems++] = (Item){K_MUSIC, 0, album, now ? "NOW PLAYING" : "CONTINUE LISTENING", artist, "Music", "", art, art, C_OK};
 }
 
 /* Quick Resume: RetroArch saves a state every two minutes (and on a clean
@@ -205,14 +206,57 @@ static void add_news(void) {
         int app = store_match(n->title);
         snprintf(by[i], sizeof(by[i]), app >= 0 ? "In the Store now" : "%s", n->author);
         vita2d_texture *pic = n->image_path[0] ? ui_image(n->image_path) : NULL;   /* the post's own picture */
-        items[nitems++] = (Item){K_NEWS, i, n->title, "COMMUNITY NEWS  \xC2\xB7  r/vitahacks", ago[i], by[i],
+        items[nitems++] = (Item){K_NEWS, i, n->title, "COMMUNITY NEWS  \xC2\xB7  r/vitahacks", ago[i], by[i], "",
                                  pic, pic, RGBA8(255, 106, 51, 255), 0};
     }
+}
+
+/* "12 h played" (or minutes, under an hour); "" once there is nothing worth
+ * saying, so the meta line falls back to just system/year as before. */
+static const char *played_label(int i, char *buf, size_t bufsz) {
+    long secs = play_recent_total_seconds(i);
+    if (secs < 60) return "";
+    if (secs < 3600) snprintf(buf, bufsz, "%ld m played", secs / 60);
+    else snprintf(buf, bufsz, "%ld h played", secs / 3600);
+    return buf;
+}
+
+/* Your week: a card like K_NEWS's headline one, shown whenever there has
+ * been any play in the last 7 days (playtime.c does the actual counting). */
+static void add_week(void) {
+    if (nitems >= MAX_ITEMS) return;
+    long secs; PlaytimeTop top[PLAYTIME_TOP]; int ntop, streak;
+    if (!playtime_week(&secs, top, &ntop, &streak)) return;
+    items[nitems++] = (Item){K_WEEK, 0, "Your week", "THIS WEEK", "", "", "", NULL, NULL, RGBA8(139, 92, 246, 255), 0};
+}
+
+/* The Your week card's big area: hours this week, the top games as bars
+ * (longest first, scaled to the leader), and the day streak. */
+static void week_big(void) {
+    long secs; PlaytimeTop top[PLAYTIME_TOP]; int ntop, streak;
+    playtime_week(&secs, top, &ntop, &streak);
+    text(bold, 48, 118, RGBA8(196, 164, 255, 255), 14, "THIS WEEK");
+    char big[24];
+    if (secs < 3600) snprintf(big, sizeof(big), "%ld m", secs / 60);
+    else snprintf(big, sizeof(big), "%.1f h", secs / 3600.0);
+    text(bold, 48, 172, C_TEXT, 48, big);
+    text(font, 48, 196, C_DIM, 16, "played this week");
+    int y = 228;
+    long best = ntop ? top[0].seconds : 1;
+    for (int k = 0; k < ntop; ++k) {
+        text_fit(font, 48, y + 14, C_TEXT, 14, top[k].title, 220);
+        draw_bar(48, y + 20, 220, 6, best ? (float)top[k].seconds / best : 0, RGBA8(139, 92, 246, 255));
+        y += 32;
+    }
+    char sline[48];
+    snprintf(sline, sizeof(sline), "%d day%s streak", streak, streak == 1 ? "" : "s");
+    text(font, 48, y + 12, C_DIM, 16, sline);
 }
 
 static void gather(void) {
     STAGE("home: gather");
     nitems = 0;
+    static char played_txt[8][32];
     if (news_unseen()) add_news();
     int ngames = play_recent_count();
     for (int i = 0; i < ngames && nitems < MAX_ITEMS; ++i) {
@@ -221,7 +265,8 @@ static void gather(void) {
         play_recent_item(i, &g);
         vita2d_texture *snap = snapshot(g.rom);
         items[nitems++] = (Item){K_GAME, i, g.title, snap ? "QUICK RESUME" : i == 0 ? "JUMP BACK IN" : "RECENTLY PLAYED",
-                                 g.system, *g.year ? g.year : g.genre, g.cover, snap ? snap : g.art, g.accent, snap != NULL};
+                                 g.system, *g.year ? g.year : g.genre, played_label(i, played_txt[i], sizeof(played_txt[i])),
+                                 g.cover, snap ? snap : g.art, g.accent, snap != NULL};
     }
     if (ngames < 2) { add_movie(); add_music(); }
     if (!news_unseen()) {                             /* read already: after the first item */
@@ -235,6 +280,7 @@ static void gather(void) {
             memcpy(&items[1], tmp, added * sizeof(Item));
         }
     }
+    add_week();
 }
 
 /* Scaled to cover the whole screen, drifting a few pixels (Ken Burns). */
@@ -261,6 +307,7 @@ const char *hometab_hint(void) {
     case K_MOVIE: return "X resume   <- -> choose   L R tabs";
     case K_MUSIC: return "X play / pause   <- -> choose   L R tabs";
     case K_NEWS: return "X read   <- -> choose   L R tabs";
+    case K_WEEK: return "<- -> choose   L R tabs";
     default: return "X play   <- -> choose   L R tabs";
     }
 }
@@ -355,9 +402,9 @@ act: {
         } else if (it->kind == K_NEWS) {
             const NewsItem *n = news_get(it->index);
             if (n) { reading = it->index; read_scroll = 0; }
-        } else {
+        } else if (it->kind == K_MUSIC) {
             music_resume();
-        }
+        }   /* K_WEEK: nothing to act on, just a card */
     }
 draw:
     if (sel != last_sel) {
@@ -382,12 +429,16 @@ draw:
         vita2d_draw_rectangle(k * 50, 64, 50, H - 104, RGBA8(21, 24, 33, 150 - k * 15));
     ui_ambient(0.6f);
 
-    text(bold, 48, 118, it->kind == K_GAME || it->kind == K_NEWS ? (it->accent | 0xFF000000) : C_ACCENT, 14, it->kicker);
-    if (it->kind == K_NEWS) { draw_wrapped_text(it->title, 48, 150, 596, 26, 2, C_TEXT); news_mark_seen(); }
-    else text_fit(bold, 48, 162, C_TEXT, 36, it->title, 596);
-    char meta[128];
-    snprintf(meta, sizeof(meta), "%s%s%s", it->meta1, *it->meta1 && *it->meta2 ? "   \xC2\xB7   " : "", it->meta2);
-    text_fit(font, 48, it->kind == K_NEWS ? 222 : 194, C_DIM, 18, meta, 596);
+    if (it->kind == K_WEEK) week_big();
+    else {
+        text(bold, 48, 118, it->kind == K_GAME || it->kind == K_NEWS ? (it->accent | 0xFF000000) : C_ACCENT, 14, it->kicker);
+        if (it->kind == K_NEWS) { draw_wrapped_text(it->title, 48, 150, 596, 26, 2, C_TEXT); news_mark_seen(); }
+        else text_fit(bold, 48, 162, C_TEXT, 36, it->title, 596);
+        char meta[128];
+        int len = snprintf(meta, sizeof(meta), "%s%s%s", it->meta1, *it->meta1 && *it->meta2 ? "   \xC2\xB7   " : "", it->meta2);
+        if (*it->meta3) snprintf(meta + len, sizeof(meta) - len, "%s%s", len ? "   \xC2\xB7   " : "", it->meta3);
+        text_fit(font, 48, it->kind == K_NEWS ? 222 : 194, C_DIM, 18, meta, 596);
+    }
     widgets();
 
     for (int i = 0; i < nitems; ++i) {
@@ -401,6 +452,13 @@ draw:
         if (t->kind == K_NEWS && !t->tile) {                    /* no picture: an orange card with the headline */
             draw_round_gradient(tx, ty, size, size, rr, RGBA8(255, 106, 51, 255), RGBA8(196, 44, 90, 255));
             draw_wrapped_text(t->title, (int)tx + 12, (int)ty + 24, (int)size - 22, 13, 4, RGBA8(255, 255, 255, 255));
+        } else if (t->kind == K_WEEK) {                         /* a purple card with the week's hours */
+            draw_round_gradient(tx, ty, size, size, rr, RGBA8(139, 92, 246, 255), RGBA8(59, 7, 100, 255));
+            long wsecs; PlaytimeTop wtop[PLAYTIME_TOP]; int wntop, wstreak;
+            playtime_week(&wsecs, wtop, &wntop, &wstreak);
+            char wbig[16];
+            snprintf(wbig, sizeof(wbig), wsecs < 3600 ? "%ldm" : "%ldh", wsecs < 3600 ? wsecs / 60 : wsecs / 3600);
+            text(bold, (int)tx + 12, (int)(ty + size * 0.42f), RGBA8(255, 255, 255, 255), 28, wbig);
         } else if (t->tile) draw_round_cover(t->tile, tx, ty, size, rr, RGBA8(255, 255, 255, i == sel ? 255 : 200));
         else {
             draw_round_rect(tx, ty, size, size, rr, RGBA8(34, 40, 56, 255));
@@ -412,11 +470,12 @@ draw:
             draw_round_rect(tx + size - sw - 8, ty + size - sh - 8, sw + 4, sh + 4, 7, RGBA8(236, 239, 244, 230));
             draw_round_texture(t->art, tx + size - sw - 6, ty + size - sh - 6, sw, sh, 5, RGBA8(255, 255, 255, 255));
         }
-        if (t->kind != K_GAME) {                               /* a small badge: film, music or news */
+        if (t->kind != K_GAME) {                               /* a small badge: film, music, news or week */
+            const char *label = t->kind == K_MOVIE ? "FILM" : t->kind == K_NEWS ? "NEWS" : t->kind == K_WEEK ? "WEEK" : "MUSIC";
+            unsigned int col = t->kind == K_MOVIE ? C_ACCENT : t->kind == K_NEWS ? RGBA8(255, 120, 70, 255)
+                              : t->kind == K_WEEK ? RGBA8(196, 164, 255, 255) : C_OK;
             draw_round_rect(tx + 8, ty + size - 30, 58, 22, 11, RGBA8(21, 24, 33, 210));   /* a pill, inside the corner */
-            text(bold, (int)tx + 17, (int)(ty + size - 14),
-                 t->kind == K_MOVIE ? C_ACCENT : t->kind == K_NEWS ? RGBA8(255, 120, 70, 255) : C_OK, 12,
-                 t->kind == K_MOVIE ? "FILM" : t->kind == K_NEWS ? "NEWS" : "MUSIC");
+            text(bold, (int)tx + 17, (int)(ty + size - 14), col, 12, label);
         }
         if (i == sel) text_fit(bold, (int)tx, (int)(ROW_Y + TILE + 34), C_TEXT, 16, t->title, 300);
     }

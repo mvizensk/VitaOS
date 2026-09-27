@@ -23,5 +23,6 @@ typedef struct {
 int play_recent_count(void);
 void play_recent_item(int i, PlayItem *out);
 int play_recent_launch(int i);            /* like X on the shelf; < 0 on failure */
+long play_recent_total_seconds(int i);    /* total play time, for the meta line */
 
 #endif

@@ -2,5 +2,5 @@
 #define HOME_VERSION_H
 /* The one place the version lives: About, the update check and the VPK's
  * APP_VER (CMakeLists.txt reads it from here). */
-#define VITAOS_VERSION "1.2.0"
+#define VITAOS_VERSION "1.3.0"
 #endif

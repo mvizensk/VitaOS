@@ -33,6 +33,7 @@
 #include "store.h"
 #include "sfx.h"
 #include "search.h"
+#include "playtime.h"
 
 /* vita-elf-create refuses layouts where its SCE data would not fit at the end
  * of segment 0 ("segment 1 overlaps"); a little slack in .data moves it on. */
@@ -270,80 +271,15 @@ static void count_play(const Game *g) {
 
 /* ---------- play time ---------- */
 
-/* stats.tsv: system, title, last played (unix), seconds played. A launch
- * writes session.tsv; when Home starts again (the game has closed) the
- * difference is the session, so the count is close without hooking games. */
-#define MAX_STATS 512
-static struct { Ref r; long last; long secs; } stats[MAX_STATS];
-static int nstats;
-
-static int stat_of(const Game *g, int make) {
-    for (int i = 0; i < nstats; ++i) if (ref_is(&stats[i].r, g)) return i;
-    if (!make || nstats == MAX_STATS) return -1;
-    ref_set(&stats[nstats].r, g);
-    stats[nstats].last = stats[nstats].secs = 0;
-    return nstats++;
-}
-
-static void save_stats(void) {
-    int len = 0;
-    for (int i = 0; i < nstats && len < (int)sizeof(save_buf) - 260; ++i)
-        len += snprintf(save_buf + len, sizeof(save_buf) - len, "%s\t%s\t%ld\t%ld\n", stats[i].r.sys, stats[i].r.title, stats[i].last, stats[i].secs);
-    write_file(USER "stats.tsv", save_buf, len);
-}
-
-static void load_stats(void) {
-    static char buf[64 * 1024];
-    SceUID fd = sceIoOpen(USER "stats.tsv", SCE_O_RDONLY, 0);
-    if (fd >= 0) {
-        int n = sceIoRead(fd, buf, sizeof(buf) - 1);
-        sceIoClose(fd);
-        buf[n > 0 ? n : 0] = 0;
-        for (char *line = strtok(buf, "\n"); line && nstats < MAX_STATS; line = strtok(NULL, "\n")) {
-            char *f[4] = {line, 0, 0, 0};
-            for (int k = 1; k < 4 && f[k - 1]; ++k) { f[k] = strchr(f[k - 1], '\t'); if (f[k]) *f[k]++ = 0; }
-            if (!f[3]) continue;
-            snprintf(stats[nstats].r.sys, sizeof(stats[0].r.sys), "%s", f[0]);
-            snprintf(stats[nstats].r.title, sizeof(stats[0].r.title), "%s", f[1]);
-            stats[nstats].last = atol(f[2]);
-            stats[nstats++].secs = atol(f[3]);
-        }
-    }
-    /* A session left by the last launch: count it now that we are back. */
-    char sess[260] = {0};
-    fd = sceIoOpen(USER "session.tsv", SCE_O_RDONLY, 0);
-    if (fd < 0) return;
-    int n = sceIoRead(fd, sess, sizeof(sess) - 1);
-    sceIoClose(fd);
-    sceIoRemove(USER "session.tsv");
-    if (n <= 0) return;
-    char *t1 = strchr(sess, '\t'), *t2 = t1 ? strchr(t1 + 1, '\t') : NULL;
-    if (!t2) return;
-    *t1 = *t2 = 0;
-    long start = atol(t2 + 1), dur = (long)time(NULL) - start;
-    if (dur < 20 || dur > 8 * 3600) return;          /* a cancelled launch, or a console left overnight */
-    for (int i = 0; i < nstats; ++i)
-        if (!strcmp(stats[i].r.sys, sess) && !strcmp(stats[i].r.title, t1 + 1)) { stats[i].secs += dur; break; }
-    save_stats();
-}
-
-static void note_session(const Game *g) {
-    int i = stat_of(g, 1);
-    if (i < 0) return;
-    stats[i].last = (long)time(NULL);
-    save_stats();
-    SceUID fd = sceIoOpen(USER "session.tsv", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    if (fd < 0) return;
-    char line[260];
-    int n = snprintf(line, sizeof(line), "%s\t%s\t%ld", stats[i].r.sys, stats[i].r.title, stats[i].last);
-    sceIoWrite(fd, line, n);
-    sceIoClose(fd);
-}
+/* The actual timing (the marker on launch, the totals, the day log) lives in
+ * playtime.c: it has to run from main() too, independent of play_init(), so
+ * a session isn't lost if Home's own catalog load fails. Here we just call
+ * in at the one place every launch already passes through. */
 
 /* Most recent first, no duplicates. Runs right after a launch: written now. */
 static void note_played(const Game *g) {
     launching = 1;
-    note_session(g);
+    playtime_record_launch(systems[g->origin].id, g->title);
     int at = nrecent < MAX_RECENT ? nrecent : MAX_RECENT - 1;
     for (int i = 0; i < nrecent; ++i) if (ref_is(&recent[i], g)) { at = i; break; }
     memmove(&recent[1], &recent[0], at * sizeof(Ref));
@@ -608,7 +544,6 @@ static void setup_lists(void) {
     }
     fill_multi();
     nrecent = load_refs(USER "recent.tsv", recent, MAX_RECENT);
-    load_stats();
     nfav = load_refs(USER "favourites.tsv", favs, MAX_FAV);
     load_plays();
     fill_list(V_RECENT, recent, nrecent);
@@ -1019,20 +954,21 @@ static void details_frame(const Input *in, unsigned int pressed) {
     }
     for (int k = 0; k < 10; ++k) vita2d_draw_rectangle(k * 56, 64, 56, H - 104, RGBA8(21, 24, 33, 200 - k * 16));
 
-    int i = stat_of(g, 0);
+    long total_secs = playtime_total_seconds(systems[g->origin].id, g->title);
+    long last = playtime_last_played(systems[g->origin].id, g->title);
     char meta[160], line[160];
     snprintf(meta, sizeof(meta), "%s%s%s%s%s", systems[g->origin].name, g->year && *g->year ? "   \xC2\xB7   " : "", g->year ? g->year : "",
              g->genre && *g->genre ? "   \xC2\xB7   " : "", g->genre ? g->genre : "");
     text_fit(bold, 40, 118, C_TEXT, 32, g->title, 500);
     text_fit(font, 40, 146, C_DIM, 16, meta, 500);
     int plays = plays_of(g);
-    if (i >= 0 && stats[i].last) {
-        time_t t = stats[i].last;
+    if (last) {
+        time_t t = last;
         struct tm *tm = localtime(&t);
         static const char *const mon[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        long h = stats[i].secs / 3600, m = stats[i].secs / 60 % 60;
-        if (stats[i].secs >= 60) snprintf(line, sizeof(line), "Played %d time%s   \xC2\xB7   %ldh %02ldm   \xC2\xB7   last %s %d",
-                                          plays, plays == 1 ? "" : "s", h, m, mon[tm->tm_mon % 12], tm->tm_mday);
+        long h = total_secs / 3600, m = total_secs / 60 % 60;
+        if (total_secs >= 60) snprintf(line, sizeof(line), "Played %d time%s   \xC2\xB7   %ldh %02ldm   \xC2\xB7   last %s %d",
+                                        plays, plays == 1 ? "" : "s", h, m, mon[tm->tm_mon % 12], tm->tm_mday);
         else snprintf(line, sizeof(line), "Played %d time%s   \xC2\xB7   last %s %d", plays, plays == 1 ? "" : "s", mon[tm->tm_mon % 12], tm->tm_mday);
     } else snprintf(line, sizeof(line), plays ? "Played %d times" : "Never played", plays);
     text(font, 40, 174, C_ACCENT, 16, line);
@@ -1142,6 +1078,12 @@ int play_recent_launch(int i) {
     int rc = launch(&g);
     if (rc >= 0) note_played(&g);
     return rc;
+}
+
+long play_recent_total_seconds(int i) {
+    if (i < 0 || i >= systems[V_RECENT].count) return 0;
+    const Game *g = &systems[V_RECENT].games[i];
+    return playtime_total_seconds(systems[g->origin].id, g->title);
 }
 
 void play_frame(const Input *in) {
