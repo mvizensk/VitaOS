@@ -1005,13 +1005,15 @@ static void icon_wifi(float cx, float cy, int connected) {
 
 /* The Bluetooth bind-rune (Hagall + Berkanan): a spine plus two triangular
  * wings. Always dim-white; no pairing state is read for this icon. */
+/* The Bluetooth mark as it is drawn everywhere: one stroke from lower left,
+ * across to the right point, up the spine, round the top point and back out
+ * to upper left, so the two diagonals cross the spine (asked for 2026-09-27:
+ * "use the real Bluetooth icon"). */
 static void icon_bt(float cx, float cy, unsigned int c) {
-    float h = 8, w = 6;
-    thick_line(cx, cy - h, cx, cy + h, c);              /* the spine */
-    thick_line(cx, cy - h, cx + w, cy - h / 2, c);       /* top wing, out */
-    thick_line(cx + w, cy - h / 2, cx, cy, c);           /* top wing, in */
-    thick_line(cx, cy, cx + w, cy + h / 2, c);           /* bottom wing, out */
-    thick_line(cx + w, cy + h / 2, cx, cy + h, c);       /* bottom wing, in */
+    float h = 8, w = 5;
+    float px[6] = {cx - w, cx + w, cx, cx, cx + w, cx - w};
+    float py[6] = {cy - h / 2, cy + h / 2, cy + h, cy - h, cy - h / 2, cy + h / 2};
+    for (int i = 0; i < 5; ++i) thick_line(px[i], py[i], px[i + 1], py[i + 1], c);
 }
 
 /* sceNetCtlInetGetState is a round trip to the net stack; once a second is
