@@ -50,7 +50,10 @@ static int last_sel = -1;
  * every tile after them (playtest 2026-09-27: "home is still moving around
  * randomly on the squares"). */
 static int anchor_kind = -1;
-static char anchor_title[128];
+static char anchor_title[96];   /* item_key() of the focused tile */
+/* Until the player presses or touches something, the focus sits on the last
+ * game played: it landed on a news tile that loaded first (2026-09-28). */
+static int player_moved;
 static int swiping;                                 /* a finger is dragging the row */
 static int reading = -1;                            /* the news post open in the reader */
 static float read_scroll;
@@ -264,11 +267,53 @@ static void week_big(void) {
  * 2026-09-26: "it jumps around the home menu squares"). */
 static int news_lead = -1;
 
+/* Tiles never move once shown (playtest 2026-09-27, again: "it auto moves
+ * tiles on its own ... make it stop permanently"). The row is rebuilt every
+ * frame and news, films, music and the week card arrive late; each rebuild
+ * keeps the tiles already shown in the order they were shown, and anything
+ * new goes on the right-hand end. The order starts fresh with the app (VitaOS
+ * restarts after every game) or hometab_reset. */
+#define KEY_LEN 96
+#define MAX_SHOWN 32
+static char shown[MAX_SHOWN][KEY_LEN];              /* every tile shown this visit, in order */
+static int nshown;
+
+/* Games and news are told apart by title. Films, music and the week card are
+ * one tile each whatever they show: the music tile is titled by the album
+ * playing, so keying it by title moved it to the end on every new album. */
+static void item_key(const Item *it, char *out) {
+    if (it->kind == K_MOVIE || it->kind == K_MUSIC || it->kind == K_WEEK) snprintf(out, KEY_LEN, "%d", it->kind);
+    else snprintf(out, KEY_LEN, "%d|%s", it->kind, it->title ? it->title : "");
+}
+
+static void keep_order(void) {
+    Item fresh[MAX_ITEMS];
+    int nfresh = nitems, used[MAX_ITEMS] = {0};
+    char keys[MAX_ITEMS][KEY_LEN];
+    memcpy(fresh, items, sizeof(Item) * nfresh);
+    for (int i = 0; i < nfresh; ++i) item_key(&fresh[i], keys[i]);
+    /* A tile seen for the first time takes the next place at the end; one
+     * that goes away and comes back (news during its refresh) keeps its place. */
+    for (int i = 0; i < nfresh; ++i) {
+        int known = 0;
+        for (int k = 0; k < nshown && !known; ++k) known = !strcmp(keys[i], shown[k]);
+        if (!known && nshown < MAX_SHOWN) snprintf(shown[nshown++], KEY_LEN, "%s", keys[i]);
+    }
+    nitems = 0;
+    for (int k = 0; k < nshown; ++k)
+        for (int i = 0; i < nfresh; ++i)
+            if (!used[i] && !strcmp(keys[i], shown[k])) { items[nitems++] = fresh[i]; used[i] = 1; break; }
+    for (int i = 0; i < nfresh && nitems < MAX_ITEMS; ++i)   /* only if MAX_SHOWN ran out */
+        if (!used[i]) items[nitems++] = fresh[i];
+}
+
 static void gather(void) {
     STAGE("home: gather");
     nitems = 0;
     static char played_txt[8][32];
-    if (news_lead < 0 && news_count()) news_lead = news_unseen();
+    /* News never leads: VitaOS opened on the news after a reboot (2026-09-27).
+     * The first tile is always the game you played last. */
+    if (news_lead < 0 && news_count()) news_lead = 0;
     if (news_lead == 1) add_news();
     int ngames = play_recent_count();
     for (int i = 0; i < ngames && nitems < MAX_ITEMS; ++i) {
@@ -293,6 +338,7 @@ static void gather(void) {
         }
     }
     add_week();
+    keep_order();
 }
 
 /* Scaled to cover the whole screen, drifting a few pixels (Ken Burns). */
@@ -304,7 +350,7 @@ static void backdrop(vita2d_texture *t, int alpha) {
     vita2d_draw_texture_tint_scale(t, x, y, sc, sc, RGBA8(255, 255, 255, alpha));
 }
 
-void hometab_reset(void) { sel = 0; anchor_kind = -1; }
+void hometab_reset(void) { sel = 0; anchor_kind = -1; nshown = 0; player_moved = 0; }
 
 int hometab_wants_tab(void) { int t = want_tab; want_tab = -1; return t; }
 
@@ -379,9 +425,10 @@ void hometab_update(const Input *in) {
         text(font, 48, 236, C_DIM, 18, "Play a game, a film or an album and it shows up here.");
         return;
     }
+    char akey[KEY_LEN];
     if (anchor_kind >= 0 && !swiping)
         for (int i = 0; i < nitems; ++i)
-            if (items[i].kind == anchor_kind && items[i].title && !strcmp(items[i].title, anchor_title)) {
+            if (item_key(&items[i], akey), !strcmp(akey, anchor_title)) {
                 if (i != sel) {                     /* tiles moved under it: follow without a pop or a slide */
                     float shift = (i > 2 ? i - 2 : 0) - (sel > 2 ? sel - 2 : 0);
                     pos += shift;
@@ -390,6 +437,11 @@ void hometab_update(const Input *in) {
                 }
                 break;
             }
+    if (in->pressed || in->tapped || in->touching) player_moved = 1;
+    if (!player_moved) {
+        sel = 0;
+        for (int i = 0; i < nitems; ++i) if (items[i].kind == K_GAME) { sel = i; break; }
+    }
     if (sel >= nitems) sel = nitems - 1;
     if (in->pressed & SCE_CTRL_LEFT) { if (sel > 0) sel--; else sfx_play(SFX_BUMP); }
     if (in->pressed & SCE_CTRL_RIGHT) { if (sel < nitems - 1) sel++; else sfx_play(SFX_BUMP); }
@@ -431,7 +483,7 @@ act: {
     }
 draw:
     anchor_kind = items[sel].kind;
-    snprintf(anchor_title, sizeof(anchor_title), "%s", items[sel].title ? items[sel].title : "");
+    item_key(&items[sel], anchor_title);
     if (sel != last_sel) {
         back_prev = last_sel;   /* by index: texture caches may free old pointers */
         back_mix = 0;
