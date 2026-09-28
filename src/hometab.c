@@ -45,6 +45,12 @@ static float pos, grow;
 static int back_prev = -1;                  /* the item whose art we are fading away from */
 static float back_mix = 1, drift;
 static int last_sel = -1;
+/* The focused item by what it is, not where it is: the row is rebuilt every
+ * frame and news, recents, music and the week card arrive late, shifting
+ * every tile after them (playtest 2026-09-27: "home is still moving around
+ * randomly on the squares"). */
+static int anchor_kind = -1;
+static char anchor_title[128];
 static int swiping;                                 /* a finger is dragging the row */
 static int reading = -1;                            /* the news post open in the reader */
 static float read_scroll;
@@ -298,7 +304,7 @@ static void backdrop(vita2d_texture *t, int alpha) {
     vita2d_draw_texture_tint_scale(t, x, y, sc, sc, RGBA8(255, 255, 255, alpha));
 }
 
-void hometab_reset(void) { sel = 0; }
+void hometab_reset(void) { sel = 0; anchor_kind = -1; }
 
 int hometab_wants_tab(void) { int t = want_tab; want_tab = -1; return t; }
 
@@ -373,6 +379,17 @@ void hometab_update(const Input *in) {
         text(font, 48, 236, C_DIM, 18, "Play a game, a film or an album and it shows up here.");
         return;
     }
+    if (anchor_kind >= 0 && !swiping)
+        for (int i = 0; i < nitems; ++i)
+            if (items[i].kind == anchor_kind && items[i].title && !strcmp(items[i].title, anchor_title)) {
+                if (i != sel) {                     /* tiles moved under it: follow without a pop or a slide */
+                    float shift = (i > 2 ? i - 2 : 0) - (sel > 2 ? sel - 2 : 0);
+                    pos += shift;
+                    if (last_sel == sel) last_sel = i;
+                    sel = i;
+                }
+                break;
+            }
     if (sel >= nitems) sel = nitems - 1;
     if (in->pressed & SCE_CTRL_LEFT) { if (sel > 0) sel--; else sfx_play(SFX_BUMP); }
     if (in->pressed & SCE_CTRL_RIGHT) { if (sel < nitems - 1) sel++; else sfx_play(SFX_BUMP); }
@@ -413,6 +430,8 @@ act: {
         }   /* K_WEEK: nothing to act on, just a card */
     }
 draw:
+    anchor_kind = items[sel].kind;
+    snprintf(anchor_title, sizeof(anchor_title), "%s", items[sel].title ? items[sel].title : "");
     if (sel != last_sel) {
         back_prev = last_sel;   /* by index: texture caches may free old pointers */
         back_mix = 0;

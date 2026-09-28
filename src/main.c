@@ -24,6 +24,7 @@
 #include <psp2/kernel/threadmgr.h>
 #include <taihen.h>
 
+#include "ssl_locks.h"
 #include "ui.h"
 #include "play.h"
 #include "apps.h"
@@ -536,6 +537,7 @@ static int boot_video(void) {
 }
 
 int main(void) {
+    ssl_threads_init();                      /* before any thread: OpenSSL 1.0.2 needs its locks (ssl_locks.c) */
     vita2d_init_advanced(4 * 1024 * 1024);   /* the per-frame vertex pool: the new visuals need more than 1 MB */
     vita2d_set_clear_color(C_BG);
     ui_init();

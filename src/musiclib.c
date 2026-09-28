@@ -18,7 +18,7 @@
 
 #define LIB "ux0:data/music/"
 #define MARK "#vitaos"
-#define MAX_TRACKS 2048
+#define MAX_TRACKS 4096
 
 typedef struct { char path[256], title[128], artist[96], album[96], cover[64]; int track; unsigned int dur; } T;
 static T *tracks;

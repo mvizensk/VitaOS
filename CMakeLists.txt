@@ -10,7 +10,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -O2 -std=gnu11")
 set(VITA_MAKE_FSELF_FLAGS "${VITA_MAKE_FSELF_FLAGS} -a 0x2200000000000101")
 
 add_executable(vitaos
-  src/main.c src/ui.c src/text.c src/play.c src/video.c src/apps.c src/files.c src/downloads.c src/settings.c src/movies.c src/music.c src/sfx.c src/hometab.c src/search.c src/storage.c src/store.c src/weather.c src/pad.c src/camera.c src/memo.c src/library.c src/musiclib.c src/update.c src/news.c src/demo.c src/playtime.c third_party/miniz/miniz.c
+  src/main.c src/ui.c src/text.c src/play.c src/video.c src/apps.c src/files.c src/downloads.c src/settings.c src/movies.c src/music.c src/sfx.c src/hometab.c src/search.c src/storage.c src/store.c src/weather.c src/pad.c src/camera.c src/memo.c src/library.c src/musiclib.c src/update.c src/news.c src/demo.c src/playtime.c src/ssl_locks.c third_party/miniz/miniz.c
   src/shared/fileops.c src/shared/sha256.c src/shared/fetch.c)
 target_include_directories(vitaos PRIVATE ${VITASDK}/arm-vita-eabi/include/freetype2)
 target_link_libraries(vitaos

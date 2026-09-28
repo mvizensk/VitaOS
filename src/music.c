@@ -25,7 +25,7 @@
 #define LAST USERDIR "music-last.txt"
 #define LIKED USERDIR "music-liked.tsv"
 #define RECENT USERDIR "music-recent.tsv"
-#define MAX_TRACKS 2048
+#define MAX_TRACKS 4096
 #define MAX_ALBUMS 512
 #define MAX_ARTISTS 512
 #define MAX_RECENT 24
