@@ -43,7 +43,7 @@ static void add_dir(const char *dir, int depth) {
         if (e.d_name[0] == '.') continue;
         char path[256];
         snprintf(path, sizeof(path), "%s/%s", dir, e.d_name);
-        if (SCE_S_ISDIR(e.d_stat.st_mode)) { if (depth < 2) add_dir(path, depth + 1); continue; }
+        if (SCE_S_ISDIR(e.d_stat.st_mode)) { if (depth < 3) add_dir(path, depth + 1); continue; }
         const char *dot = strrchr(e.d_name, '.');
         if (!dot || (strcasecmp(dot, ".mp4") && strcasecmp(dot, ".m4v"))) continue;
         Movie *m = &movies[nmovies++];
@@ -84,7 +84,13 @@ static void save_resume(void) {
 static void scan(void) {
     STAGE("movies: scan");
     nmovies = 0;
-    add_dir("ux0:video", 0);
+    /* Where people keep films (Reddit, 2026-09-29: "recognizing none of my
+     * movie files"): the system's video folder on every card mount, and the
+     * obvious names. Folders that do not exist cost one failed open. */
+    static const char *const roots[] = {"ux0:video", "uma0:video", "imc0:video", "xmc0:video", "grw0:video",
+                                        "ux0:Videos", "ux0:Movies", "ux0:movies", "uma0:Movies", "uma0:movies",
+                                        "ux0:data/video", "ux0:data/movies", "ux0:data/Movies"};
+    for (unsigned int r = 0; r < sizeof(roots) / sizeof(roots[0]); ++r) add_dir(roots[r], 0);
     qsort(movies, nmovies, sizeof(Movie), by_title);
     load_resume();
     scanned = 1;
@@ -98,6 +104,12 @@ static void clock_str(unsigned int ms, char *out, int max) {
 
 /* ---------- full screen ---------- */
 
+/* A file the Vita cannot decode opens and ends at once, and the player used
+ * to close without a word (Reddit and a DM, 2026-09-29: "videos aren't
+ * playing even though they're mp4"). Ended inside 4 s without getting past
+ * half a second: say why. */
+static unsigned int open_frames, furthest_ms;
+
 static void open_player(void) {
     Movie *m = &movies[sel];
     previewing[0] = 0;
@@ -109,6 +121,8 @@ static void open_player(void) {
     }
     full = 1;
     controls = 180;
+    open_frames = 0;
+    furthest_ms = 0;
 }
 
 static void close_player(int finished) {
@@ -126,7 +140,19 @@ static void close_player(int finished) {
 
 static void player(const Input *in) {
     sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);       /* keep the screen on */
-    if (video_owner() != OWN_MOVIE) { close_player(video_duration_ms() > 0); return; }   /* ended (or never opened) */
+    if (video_owner() != OWN_MOVIE) {                         /* ended (or never opened) */
+        int never = open_frames < 240 && furthest_ms < 500;
+        close_player(video_duration_ms() > 0 && !never);
+        if (never)
+            ui_message("This film will not play",
+                       "The Vita plays MP4 files with H.264 video (up to 960x544 is safest) and AAC audio. "
+                       "Other formats, such as H.265/HEVC or 1080p, need converting first, for example with "
+                       "HandBrake's H.264 presets.");
+        return;
+    }
+    ++open_frames;
+    unsigned int p = video_pos_ms();
+    if (p > furthest_ms) furthest_ms = p;
     if (in->pressed || in->tapped) controls = 180;
     if (in->pressed & SCE_CTRL_CROSS) video_pause(!video_paused());
     unsigned int pos = video_pos_ms();
@@ -328,7 +354,7 @@ void movies_update(const Input *in) {
     if (full) { player(in); return; }
     if (!nmovies) {
         text(bold, 40, 140, C_TEXT, 22, "No movies yet");
-        text(font, 40, 176, C_DIM, 18, "Put .mp4 files (H.264, up to 960x544) in ux0:video/");
+        text(font, 40, 176, C_DIM, 18, "Put .mp4 files (H.264, up to 960x544) in ux0:video");
         return;
     }
     int was = sel;

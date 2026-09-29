@@ -58,7 +58,9 @@ static int swiping;                                 /* a finger is dragging the 
 static int reading = -1;                            /* the news post open in the reader */
 static float read_scroll;
 
+static int tab_hidden(int movies);
 static void add_movie(void) {
+    if (tab_hidden(1)) return;
     static char meta[48];
     const char *title;
     vita2d_texture *poster;
@@ -70,7 +72,21 @@ static void add_movie(void) {
     items[nitems++] = (Item){K_MOVIE, m - 1, title, "CONTINUE WATCHING", meta, "Movies", "", poster, poster, C_ACCENT};
 }
 
+/* Settings > VitaOS can hide the Movies or Music tab; their Home tiles go too.
+ * Checked about once a second, not every frame. */
+static int tab_hidden(int movies) {
+    static int cache[2], age = 1000;
+    if (++age > 120) {
+        SceIoStat st;
+        cache[0] = sceIoGetstat("ux0:data/arcadehub/user/hide-music", &st) >= 0;
+        cache[1] = sceIoGetstat("ux0:data/arcadehub/user/hide-movies", &st) >= 0;
+        age = 0;
+    }
+    return cache[movies ? 1 : 0];
+}
+
 static void add_music(void) {
+    if (tab_hidden(0)) return;
     const char *album, *artist;
     vita2d_texture *art;
     int now;

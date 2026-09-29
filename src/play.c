@@ -27,6 +27,7 @@
 #include <strings.h>
 #include <psp2/io/dirent.h>
 #include <time.h>
+#include "gamedesc.h"
 #include "video.h"
 #include "ui.h"
 #include "play.h"
@@ -352,12 +353,104 @@ static const char *rom_path(const Game *g) {
     return NULL;
 }
 
+/* ---------- your own names (Reddit, 2026-09-27: "options to rename titles,
+ * purely visual and launcher-side only") ----------
+ * user/names.tsv: system, the name the library gives the game, your name. Only
+ * VitaOS's lists change; nothing on the card is renamed. Applied as the
+ * catalog loads, before the lists that refer to games by title. */
+#define MAX_NAMES 512
+typedef struct { char sys[32]; char orig[160]; char name[160]; } Name;
+static Name names[MAX_NAMES];
+static int nnames;
+
+static void load_names(void) {
+    nnames = 0;
+    char *text = slurp(USER "names.tsv", NULL);
+    if (!text) return;
+    char *save = NULL;
+    for (char *line = strtok_r(text, "\r\n", &save); line && nnames < MAX_NAMES; line = strtok_r(NULL, "\r\n", &save)) {
+        char *a = strchr(line, '\t'), *b = a ? strchr(a + 1, '\t') : NULL;
+        if (!a || !b) continue;
+        *a = *b = 0;
+        snprintf(names[nnames].sys, sizeof(names[0].sys), "%s", line);
+        snprintf(names[nnames].orig, sizeof(names[0].orig), "%s", a + 1);
+        snprintf(names[nnames].name, sizeof(names[0].name), "%s", b + 1);
+        nnames++;
+    }
+    free(text);
+}
+
+static void save_names(void) {
+    static char buf[MAX_NAMES * 360];
+    int n = 0;
+    for (int i = 0; i < nnames && n < (int)sizeof(buf) - 360; ++i)
+        n += snprintf(buf + n, sizeof(buf) - n, "%s\t%s\t%s\n", names[i].sys, names[i].orig, names[i].name);
+    write_file(USER "names.tsv", buf, n);
+}
+
+static void apply_names(void) {
+    if (!nnames) return;
+    for (int s = first_real; s < last_real; ++s)
+        for (int i = 0; i < systems[s].count; ++i) {
+            Game *g = &systems[s].games[i];
+            for (int k = 0; k < nnames; ++k)
+                if (!strcmp(names[k].sys, systems[s].id) && !strcmp(names[k].orig, g->title)) {
+                    char *t = strdup(names[k].name);
+                    if (t) g->title = t;                  /* the old one belongs to the catalog text */
+                    break;
+                }
+        }
+}
+
+/* Every list that refers to the game by its old title follows it. */
+static void retitle_refs(Ref *r, int n, const char *sys, const char *from, const char *to) {
+    for (int i = 0; i < n; ++i)
+        if (!strcmp(r[i].sys, sys) && !strcmp(r[i].title, from)) snprintf(r[i].title, sizeof(r[i].title), "%s", to);
+}
+
+static void rename_game(Game *g) {
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%s", g->title);
+    if (!ui_ask_text("Rename", buf, sizeof(buf)) || !buf[0] || !strcmp(buf, g->title)) return;
+    const char *sys = systems[g->origin].id;
+    char from[160];
+    snprintf(from, sizeof(from), "%s", g->title);
+    int k = 0;
+    while (k < nnames && !(!strcmp(names[k].sys, sys) && !strcmp(names[k].name, from))) ++k;   /* renamed before? */
+    if (k == nnames && nnames < MAX_NAMES) {
+        snprintf(names[k].sys, sizeof(names[0].sys), "%s", sys);
+        snprintf(names[k].orig, sizeof(names[0].orig), "%s", from);
+        nnames++;
+    }
+    if (k < nnames) {
+        if (!strcmp(names[k].orig, buf)) { names[k] = names[--nnames]; }   /* back to the original: forget it */
+        else snprintf(names[k].name, sizeof(names[0].name), "%s", buf);
+    }
+    save_names();
+    retitle_refs(recent, nrecent, sys, from, buf);
+    retitle_refs(favs, nfav, sys, from, buf);
+    retitle_refs(plays, nplays, sys, from, buf);
+    save_refs(USER "recent.tsv", recent, nrecent);
+    save_refs(USER "favourites.tsv", favs, nfav);
+    save_plays();
+    System *real = &systems[g->origin];
+    for (int i = 0; i < real->count; ++i)
+        if (!strcmp(real->games[i].title, from)) {
+            char *t = strdup(buf);
+            if (t) real->games[i].title = t;
+            break;
+        }
+    char *t = strdup(buf);
+    if (t) g->title = t;
+    rebuild_derived();
+}
+
 /* Remove from the menu for good; with delete_rom, erase the ROM too. */
 static void hide_game(int sys, int sel, int delete_rom) {
     System *sy = &systems[sys];
     Game g = sy->games[sel];
     if (nhidden < MAX_HIDDEN) {
-        ref_set(&hidden[nhidden], &g);
+        ref_set(&hidden[nhidden], &g);                  /* by the shown name: renames apply before hidden.tsv */
         nhidden++;
         save_refs(USER "hidden.tsv", hidden, nhidden);
     }
@@ -813,7 +906,8 @@ void play_init(void) {
     }
     last_real = nsys;                /* before apply_hidden, which walks the real systems */
     if (nsys <= VIRT) nsys = 0;
-    else { nhidden = load_refs(USER "hidden.tsv", hidden, MAX_HIDDEN); if (nhidden) apply_hidden();
+    else { load_names(); apply_names();
+           nhidden = load_refs(USER "hidden.tsv", hidden, MAX_HIDDEN); if (nhidden) apply_hidden();
            build_colls(); setup_lists(); }
     sys = first_real < last_real ? first_real : 0;      /* Play opens on the consoles */
     group = 0;
@@ -847,7 +941,8 @@ void play_reload(void) {
     load_catalog();
     last_real = nsys;
     if (nsys <= VIRT) nsys = 0;
-    else { nhidden = load_refs(USER "hidden.tsv", hidden, MAX_HIDDEN); if (nhidden) apply_hidden();
+    else { load_names(); apply_names();
+           nhidden = load_refs(USER "hidden.tsv", hidden, MAX_HIDDEN); if (nhidden) apply_hidden();
            build_colls(); setup_lists(); }
     sys = first_real < last_real ? first_real : 0;
     group = 0;
@@ -911,9 +1006,19 @@ static void details_states(void) {
     sceIoDclose(d);
 }
 
+/* No description in the catalog: Wikipedia's, cached (gamedesc.c). */
+static char dtext[900];
+static int dwiki;
+
 static void details_open(const Game *g) {
     dgame = *g;
     details = 1;
+    dwiki = 0;
+    if (!dgame.desc || !*dgame.desc) {
+        int c = gamedesc_cached(dgame.title, dtext, sizeof(dtext));
+        if (c > 0) { dgame.desc = dtext; dwiki = 1; }
+        else if (c < 0) gamedesc_request(dgame.title);
+    }
     dfocus = -1;
     dframes = 0;
     details_states();
@@ -936,11 +1041,16 @@ static void details_open(const Game *g) {
 static void details_frame(const Input *in, unsigned int pressed) {
     Game *g = &dgame;
     ++dframes;
+    if ((!g->desc || !*g->desc) && (dframes & 15) == 0) {
+        const char *r = gamedesc_result(g->title);
+        if (r && *r) { snprintf(dtext, sizeof(dtext), "%s", r); g->desc = dtext; dwiki = 1; }
+    }
     if (pressed & (SCE_CTRL_CIRCLE | SCE_CTRL_TRIANGLE)) { details = 0; details_free(); return; }
     if (pressed & SCE_CTRL_DOWN && nsimilar && dfocus < 0) dfocus = 0;
     if (pressed & SCE_CTRL_UP) dfocus = -1;
     if (dfocus >= 0 && pressed & SCE_CTRL_LEFT) dfocus = dfocus > 0 ? dfocus - 1 : 0;
     if (dfocus >= 0 && pressed & SCE_CTRL_RIGHT) dfocus = dfocus < nsimilar - 1 ? dfocus + 1 : dfocus;
+    if (pressed & SCE_CTRL_START) { rename_game(g); return; }
     if (pressed & SCE_CTRL_SQUARE) {
         int on = toggle_fav(g);
         snprintf(toast, sizeof(toast), on ? "Added to Favourites" : "Removed from Favourites");
@@ -986,7 +1096,10 @@ static void details_frame(const Input *in, unsigned int pressed) {
     if (play_on) draw_focus(40, 192, 150, 40, 1);
     draw_action_button(40, 192, 150, 40, "X Play", play_on, C_ACCENT);
     draw_hints(206, 212, is_fav(g) ? "[] Favourite \xE2\x98\x85" : "[] Add to favourites", C_DIM, W);
-    if (g->desc && *g->desc) draw_wrapped(font, g->desc, 40, 262, 490, 16, 5, C_DIM);
+    if (g->desc && *g->desc) {
+        draw_wrapped(font, g->desc, 40, 262, 490, 16, 5, C_DIM);
+        if (dwiki) text(font, 40, 394, C_DIM, 12, "From Wikipedia (CC BY-SA)");
+    }
 
     /* media: the live preview if it is playing, else the screenshot, cycling */
     int mx = 560, my = 92, mw = 360, mh = 202;
@@ -1104,7 +1217,7 @@ void play_frame(const Input *in) {
     /* Home's input: key repeat and the stick-as-D-pad are done there. L and R
      * belong to Home (they switch tabs). */
     unsigned int pressed = in->pressed & ~(SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_L1 | SCE_CTRL_R1);
-    if (details) { details_frame(in, pressed); hint_override = "\xC3\x97  play    \xE2\x96\xA1  favourite    \xE2\x86\x93  more like this    \xE2\x97\x8B  back"; return; }
+    if (details) { details_frame(in, pressed); hint_override = "\xC3\x97  play    \xE2\x96\xA1  favourite    START rename    \xE2\x86\x93  more    \xE2\x97\x8B  back"; return; }
     hint_override = NULL;
     if (pressed) idle = 0; else idle++;
     if (attract) {

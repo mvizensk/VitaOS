@@ -352,16 +352,29 @@ void settings_update(const Input *in) {
         if (focus == F_BUBBLES && release_ps) release_ps();
         if (focus == F_WEATHER) weather_pick();
         if (focus == F_THEME) theme_pick();
-        static char get_label[40], boot_label[48];
+        static char get_label[40], boot_label[48], movies_label[40], music_label[40];
         /* Start at boot: the PS plugin (1.3) opens VitaOS after power-on
          * unless user/boot.off is there (asked for 2026-09-27). */
         SceIoStat bst;
         int boot_on = sceIoGetstat("ux0:data/arcadehub/user/boot.off", &bst) < 0;
         snprintf(boot_label, sizeof(boot_label), "Start at boot: %s", boot_on ? "On" : "Off");
-        const char *vitaos_items[5] = {"Find games again", "Download box art", "About VitaOS", boot_label, get_label};
+        SceIoStat hst;
+        int movies_on = sceIoGetstat("ux0:data/arcadehub/user/hide-movies", &hst) < 0;
+        int music_on = sceIoGetstat("ux0:data/arcadehub/user/hide-music", &hst) < 0;
+        snprintf(movies_label, sizeof(movies_label), "Movies tab: %s", movies_on ? "Shown" : "Hidden");
+        snprintf(music_label, sizeof(music_label), "Music tab: %s", music_on ? "Shown" : "Hidden");
+        const char *vitaos_items[7] = {"Find games again", "Download box art", "About VitaOS", boot_label,
+                                       movies_label, music_label, get_label};
         const char *newer = update_newer();
         if (newer) snprintf(get_label, sizeof(get_label), "Get VitaOS %s", newer);
-        int pick = focus == F_ABOUT ? ui_menu("VitaOS", (const char *const *)vitaos_items, newer ? 5 : 4) : -1;
+        int pick = focus == F_ABOUT ? ui_menu("VitaOS", (const char *const *)vitaos_items, newer ? 7 : 6) : -1;
+        if (pick == 4 || pick == 5) {                /* Reddit, 2026-09-27: hide Movies and Music */
+            const char *flag = pick == 4 ? "ux0:data/arcadehub/user/hide-movies" : "ux0:data/arcadehub/user/hide-music";
+            int on = pick == 4 ? movies_on : music_on;
+            if (on) { SceUID hf = sceIoOpen(flag, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666); if (hf >= 0) sceIoClose(hf); }
+            else sceIoRemove(flag);
+            ui_toast(on ? (pick == 4 ? "Movies tab hidden" : "Music tab hidden") : (pick == 4 ? "Movies tab shown" : "Music tab shown"), C_OK);
+        }
         if (pick == 3) {
             if (boot_on) {
                 SceUID bf = sceIoOpen("ux0:data/arcadehub/user/boot.off", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
@@ -372,7 +385,7 @@ void settings_update(const Input *in) {
                 ui_toast("VitaOS opens at power-on (needs the PS plugin)", C_OK);
             }
         }
-        if (pick == 4) update_get();
+        if (pick == 6) update_get();
         if (pick == 0 && lib_rescan) lib_rescan();
         if (pick == 1 && lib_art) lib_art();
         if (pick == 2)

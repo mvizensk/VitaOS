@@ -52,6 +52,32 @@ int _newlib_heap_size_user = 96 * 1024 * 1024;   /* the game catalog, curl, file
 static const char *const TABS[] = {"Home", "Play", "Movies", "Music", "Apps", "Files", "Store", "Settings"};
 enum { T_HOME, T_PLAY, T_MOVIES, T_MUSIC, T_APPS, T_FILES, T_DOWNLOADS, T_SETTINGS, NTABS };
 
+/* Movies and Music can be hidden (Reddit, 2026-09-27: "an option to get rid of
+ * movies and music would be nice"): Settings > VitaOS writes user/hide-movies
+ * or user/hide-music. The header, L/R and taps work on the tabs still shown. */
+static int vis[NTABS], nvis;
+static const char *vis_names[NTABS];
+static void tabs_build(void) {
+    SceIoStat st;
+    int no_movies = sceIoGetstat("ux0:data/arcadehub/user/hide-movies", &st) >= 0;
+    int no_music = sceIoGetstat("ux0:data/arcadehub/user/hide-music", &st) >= 0;
+    nvis = 0;
+    for (int t = 0; t < NTABS; ++t) {
+        if ((t == T_MOVIES && no_movies) || (t == T_MUSIC && no_music)) continue;
+        vis[nvis] = t;
+        vis_names[nvis++] = TABS[t];
+    }
+}
+static int vis_index(int t) {
+    for (int i = 0; i < nvis; ++i) if (vis[i] == t) return i;
+    return -1;
+}
+static int tab_step(int t, int dir) {                 /* the next shown tab, wrapping */
+    int i = vis_index(t);
+    if (i < 0) return T_HOME;
+    return vis[(i + dir + nvis) % nvis];
+}
+
 /* The PS button. Home locks it with the system's own lock (the one games
  * use while saving), so a short press brings you to Play instead of dropping
  * you onto the LiveArea bubbles. The lock leaves the hold alone: holding PS
@@ -434,13 +460,13 @@ static void library_rescan_now(void) {                /* Settings > VitaOS > Fin
     ui_toast("Looking for games\xE2\x80\xA6", C_ACCENT);
 }
 
-static volatile int art_done, art_got, art_running;
+static volatile int art_done, art_got, art_running, art_quiet;
 static int art_thread(SceSize args, void *argp) {
     (void)args; (void)argp;
     library_fetch_art(&art_done, &art_got);
     char msg[80];
     snprintf(msg, sizeof(msg), "Box art: %d found for %d games", art_got, art_done);
-    ui_toast(msg, C_OK);
+    if (!art_quiet || art_got > 0) ui_toast(msg, C_OK);
     art_running = 0;
     library_rescan_now();                            /* pick the new art up */
     lib_before = -2;                                 /* same games, new art: reload anyway */
@@ -450,10 +476,34 @@ static int art_thread(SceSize args, void *argp) {
 static void library_art_now(void) {                  /* Settings > VitaOS > Download box art */
     if (library_is_ours() == 0) { ui_message("Download box art", "This Vita uses a library built on a computer, which has its own art."); return; }
     if (art_running) { ui_toast("Already downloading box art", C_ACCENT); return; }
-    art_running = 1; art_done = art_got = 0;
+    art_running = 1; art_quiet = 0; art_done = art_got = 0;
     SceUID t = sceKernelCreateThread("box_art", art_thread, 0x10000110, 0x10000, 0, 0, NULL);
     if (t < 0 || sceKernelStartThread(t, 0, NULL) < 0) { art_running = 0; return; }
     ui_toast("Downloading box art in the background", C_ACCENT);
+}
+
+/* Box art without asking (Reddit and a DM, 2026-09-29: "couldn't pull covers
+ * and artwork"; the download sat behind Settings > VitaOS). Once the library
+ * is scanned and Wi-Fi is up, fetch art for games that have none; again only
+ * when the game count changes (user/art-auto holds the count last tried). */
+#define ART_AUTO "ux0:data/arcadehub/user/art-auto"
+static void art_auto_tick(void) {
+    static int done_this_run;
+    if (done_this_run || art_running || lib_done < 0) return;
+    if (!(frame_no % 120 == 0)) return;               /* every two seconds is plenty */
+    int st = 0;
+    if (sceNetCtlInetGetState(&st) < 0 || st != SCE_NETCTL_STATE_CONNECTED) return;
+    done_this_run = 1;
+    if (library_is_ours() <= 0) return;               /* a Mac-built catalog has its own art */
+    char want[16], had[16] = {0};
+    snprintf(want, sizeof(want), "%d", lib_done);
+    SceUID fd = sceIoOpen(ART_AUTO, SCE_O_RDONLY, 0);
+    if (fd >= 0) { sceIoRead(fd, had, sizeof(had) - 1); sceIoClose(fd); }
+    if (!strcmp(want, had)) return;
+    ui_save(ART_AUTO, want, strlen(want), 0);
+    art_running = 1; art_quiet = 1; art_done = art_got = 0;
+    SceUID t = sceKernelCreateThread("box_art", art_thread, 0x10000110, 0x10000, 0, 0, NULL);
+    if (t < 0 || sceKernelStartThread(t, 0, NULL) < 0) art_running = 0;
 }
 
 static void library_rescan_start(void) {
@@ -604,10 +654,13 @@ int main(void) {
         if (sceIoRead(lt, b, 3) > 0 && atoi(b) >= 0 && atoi(b) < NTABS) tab = atoi(b);
         sceIoClose(lt);
     }
+    tabs_build();
+    if (vis_index(tab) < 0) tab = T_HOME;             /* the last tab was hidden since */
     Input in;
     memset(&in, 0, sizeof(in));
     for (;;) {
         ++frame_no;
+        if (frame_no % 60 == 0) tabs_build();         /* Settings may have hidden or shown one */
         {                                        /* frame timing, logged by the watchdog; at the top so */
             static SceUInt64 last;              /* early-out paths (search) are measured too */
             SceUInt64 now = sceKernelGetProcessTimeWide();
@@ -645,12 +698,12 @@ int main(void) {
         }
         search_prepare();                        /* between frames: it blurs the last one */
         int searching = search_active();
-        if (!movie_full && !searching && in.pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_L1)) tab = (tab + NTABS - 1) % NTABS;
-        if (!movie_full && !searching && in.pressed & (SCE_CTRL_RTRIGGER | SCE_CTRL_R1)) tab = (tab + 1) % NTABS;
+        if (!movie_full && !searching && in.pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_L1)) tab = tab_step(tab, -1);
+        if (!movie_full && !searching && in.pressed & (SCE_CTRL_RTRIGGER | SCE_CTRL_R1)) tab = tab_step(tab, 1);
         if (!movie_full && !searching) header_icon_hold(&in);   /* may clear in.tapped below */
         if (in.tapped && !movie_full && !searching) {
-            int t = header_tab_at(in.tap_x, in.tap_y, TABS, NTABS);
-            if (t >= 0) { tab = t; in.tapped = 0; }
+            int t = header_tab_at(in.tap_x, in.tap_y, vis_names, nvis);
+            if (t >= 0) { tab = vis[t]; in.tapped = 0; }
             else if (header_icon_at(in.tap_x, in.tap_y) >= 0) { tab = T_SETTINGS; in.tapped = 0; }
         }
         if (open_music) { tab = T_MUSIC; open_music = 0; }   /* the footer player's title was tapped */
@@ -690,6 +743,7 @@ int main(void) {
             continue;
         }
         library_poll(tab == T_PLAY);
+        art_auto_tick();
         STAGE("tab body");
         if (tab != T_PLAY && tab != T_HOME) ui_ambient(1.0f);   /* Play and Home lay it over their art */
         switch (tab) {
@@ -718,7 +772,7 @@ int main(void) {
         int bar = tab != T_MUSIC && *music_now();
         if (!(tab == T_PLAY && play_fullscreen()) && !(tab == T_MOVIES && movies_fullscreen()) &&
             !(tab == T_APPS && camera_fullscreen())) {
-            draw_header(TABS, NTABS, tab, context);
+            draw_header(vis_names, nvis, vis_index(tab), context);
             if (demo_running()) ui_agent_active = 0;      /* again: housekeeping may have set it this frame */
             int rx = draw_footer_r(hint, bar ? 330 : 0);
             if (bar && music_bar(&in, rx + 8, 318)) open_music = 1;

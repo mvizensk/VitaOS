@@ -20,10 +20,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/dirent.h>
 #include <psp2/io/stat.h>
 #include <curl/curl.h>
+#include <zlib.h>
 #include "library.h"
 #include "apps.h"
 
@@ -99,7 +101,7 @@ static volatile int *progress;
 
 static int exists(const char *p) { SceIoStat st; return sceIoGetstat(p, &st) >= 0; }
 
-static char *dup(const char *s) { size_t n = strlen(s) + 1; char *d = malloc(n); if (d) memcpy(d, s, n); return d; }
+static char *lib_dup(const char *s) { size_t n = strlen(s) + 1; char *d = malloc(n); if (d) memcpy(d, s, n); return d; }
 
 static int has_ext(const char *name, const char *exts) {
     const char *dot = strrchr(name, '.');
@@ -153,7 +155,7 @@ static List list_dir(const char *dir) {
         memset(&e, 0, sizeof(e));
         if (sceIoDread(d, &e) <= 0) break;
         if (l.n == cap) { cap = cap ? cap * 2 : 64; l.names = realloc(l.names, cap * sizeof(char *)); }
-        l.names[l.n++] = dup(e.d_name);
+        l.names[l.n++] = lib_dup(e.d_name);
     }
     sceIoDclose(d);
     return l;
@@ -203,8 +205,8 @@ static const char *name_key(int sys, const char *path) {
 static void add(int sys, const char *title, const char *kind, const char *a1, const char *a2, const char *cover, const char *bg) {
     if (nrows >= MAX_GAMES) return;
     Row *r = &rows[nrows++];
-    r->sys = sys; r->title = dup(title); r->kind = dup(kind); r->a1 = dup(a1); r->a2 = dup(a2);
-    r->cover = dup(cover); r->bg = dup(bg);
+    r->sys = sys; r->title = lib_dup(title); r->kind = lib_dup(kind); r->a1 = lib_dup(a1); r->a2 = lib_dup(a2);
+    r->cover = lib_dup(cover); r->bg = lib_dup(bg);
     mark_seen(!strcmp(kind, "ra") ? a2 : a1);
     if (!strcmp(kind, "ra")) mark_seen(name_key(sys, a2));
     if (progress) *progress = nrows;
@@ -399,6 +401,182 @@ static int sys_by_id(const char *id) {
     return -1;
 }
 
+/* ---------- PSP art from the game itself ----------
+ * Every PSP game carries its own ICON0.PNG (the XMB icon), PIC1.PNG (the XMB
+ * backdrop) and PARAM.SFO (the real title): in an ISO under PSP_GAME/, in a
+ * CSO the same ISO compressed block by block, in an EBOOT.PBP at offsets its
+ * header lists. Read once, saved under media/psp/, so every PSP game gets
+ * art with no internet (Reddit, 2026-09-29: "PSP has 0 game art"). */
+
+typedef struct { SceUID fd; int cso; unsigned int align, blocks; } Disc;
+
+static int disc_sector(Disc *d, unsigned int lba, unsigned char *out) {
+    if (!d->cso) {
+        if (sceIoLseek(d->fd, (SceOff)lba * 2048, SCE_SEEK_SET) < 0) return -1;
+        return sceIoRead(d->fd, out, 2048) == 2048 ? 0 : -1;
+    }
+    if (lba >= d->blocks) return -1;
+    unsigned char ix[8];
+    if (sceIoLseek(d->fd, 0x18 + (SceOff)lba * 4, SCE_SEEK_SET) < 0 || sceIoRead(d->fd, ix, 8) != 8) return -1;
+    unsigned int a = ix[0] | ix[1] << 8 | ix[2] << 16 | (unsigned)ix[3] << 24;
+    unsigned int b = ix[4] | ix[5] << 8 | ix[6] << 16 | (unsigned)ix[7] << 24;
+    SceOff pos = (SceOff)(a & 0x7FFFFFFF) << d->align, end = (SceOff)(b & 0x7FFFFFFF) << d->align;
+    int len = (int)(end - pos);
+    if (len <= 0 || len > 4096) return -1;
+    static unsigned char raw[4096];
+    if (sceIoLseek(d->fd, pos, SCE_SEEK_SET) < 0 || sceIoRead(d->fd, raw, len) != len) return -1;
+    if (a & 0x80000000) { memcpy(out, raw, 2048); return 0; }      /* stored */
+    z_stream z;
+    memset(&z, 0, sizeof(z));
+    if (inflateInit2(&z, -15) != Z_OK) return -1;                   /* raw deflate */
+    z.next_in = raw; z.avail_in = len; z.next_out = out; z.avail_out = 2048;
+    int r = inflate(&z, Z_FINISH);
+    inflateEnd(&z);
+    return (r == Z_STREAM_END || z.avail_out == 0) ? 0 : -1;
+}
+
+static int disc_open(Disc *d, const char *path) {
+    memset(d, 0, sizeof(*d));
+    d->fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (d->fd < 0) return -1;
+    unsigned char h[24];
+    if (sceIoRead(d->fd, h, 24) != 24) { sceIoClose(d->fd); return -1; }
+    if (!memcmp(h, "CISO", 4)) {
+        unsigned long long total = 0;
+        for (int i = 0; i < 8; ++i) total |= (unsigned long long)h[8 + i] << (8 * i);
+        unsigned int bs = h[16] | h[17] << 8 | h[18] << 16 | (unsigned)h[19] << 24;
+        if (bs != 2048) { sceIoClose(d->fd); return -1; }
+        d->cso = 1;
+        d->align = h[21];
+        d->blocks = (unsigned int)(total / 2048);
+    }
+    return 0;
+}
+
+/* A file inside the disc's PSP_GAME folder, read whole (up to max bytes). */
+static int disc_file(Disc *d, const char *name, unsigned char *out, int max) {
+    static unsigned char sec[2048];
+    if (disc_sector(d, 16, sec) < 0 || memcmp(sec + 1, "CD001", 5)) return -1;
+    unsigned int dir = sec[156 + 2] | sec[156 + 3] << 8 | sec[156 + 4] << 16 | (unsigned)sec[156 + 5] << 24;
+    unsigned int dsize = sec[156 + 10] | sec[156 + 11] << 8 | sec[156 + 12] << 16 | (unsigned)sec[156 + 13] << 24;
+    for (int level = 0; level < 2; ++level) {           /* root -> PSP_GAME -> the file */
+        const char *want = level ? name : "PSP_GAME";
+        unsigned int found = 0, fsize = 0;
+        for (unsigned int off = 0; off < dsize && !found; off += 2048) {
+            if (disc_sector(d, dir + off / 2048, sec) < 0) return -1;
+            for (int i = 0; i < 2048 && sec[i];) {
+                int rl = sec[i], nl = sec[i + 32];
+                if (rl < 34 || i + rl > 2048) break;
+                const char *nm = (const char *)sec + i + 33;
+                int wl = (int)strlen(want);
+                if (nl >= wl && !strncasecmp(nm, want, wl) && (nl == wl || nm[wl] == ';')) {
+                    found = sec[i + 2] | sec[i + 3] << 8 | sec[i + 4] << 16 | (unsigned)sec[i + 5] << 24;
+                    fsize = sec[i + 10] | sec[i + 11] << 8 | sec[i + 12] << 16 | (unsigned)sec[i + 13] << 24;
+                    break;
+                }
+                i += rl;
+            }
+        }
+        if (!found) return -1;
+        dir = found; dsize = fsize;
+    }
+    if ((int)dsize > max) return -1;
+    for (unsigned int off = 0; off < dsize; off += 2048) {
+        if (disc_sector(d, dir + off / 2048, sec) < 0) return -1;
+        memcpy(out + off, sec, dsize - off < 2048 ? dsize - off : 2048);
+    }
+    return (int)dsize;
+}
+
+static int sfo_value(const unsigned char *buf, int n, const char *want, char *out, int max) {
+    out[0] = 0;
+    if (n < 20 || memcmp(buf, "\0PSF", 4)) return -1;
+    unsigned int keys = buf[8] | buf[9] << 8 | buf[10] << 16 | (unsigned)buf[11] << 24;
+    unsigned int data = buf[12] | buf[13] << 8 | buf[14] << 16 | (unsigned)buf[15] << 24;
+    unsigned int count = buf[16] | buf[17] << 8 | buf[18] << 16 | (unsigned)buf[19] << 24;
+    for (unsigned int i = 0; i < count && 20 + i * 16 + 16 <= (unsigned)n; ++i) {
+        const unsigned char *e = buf + 20 + i * 16;
+        unsigned int key = e[0] | e[1] << 8, len = e[4] | e[5] << 8 | e[6] << 16;
+        unsigned int vo = e[12] | e[13] << 8 | e[14] << 16 | (unsigned)e[15] << 24;
+        if (keys + key >= (unsigned)n || data + vo + len > (unsigned)n) continue;
+        if (!strcmp((const char *)buf + keys + key, want)) {
+            snprintf(out, max, "%.*s", (int)len, (const char *)buf + data + vo);
+            for (char *p = out; *p; ++p) if (*p == '\n') *p = ' ';
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int save_blob(const char *path, const unsigned char *b, int n) {
+    if (n < 8 || memcmp(b, "\x89PNG", 4)) return -1;
+    SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+    if (fd < 0) return -1;
+    int w = sceIoWrite(fd, b, n);
+    sceIoClose(fd);
+    return w == n ? 0 : -1;
+}
+
+/* Fills cover/bg with saved PNG paths and title with PARAM.SFO's, when found. */
+static void psp_art(const char *path, const char *key, char *title, int tmax, char *cover, char *bg) {
+    cover[0] = bg[0] = 0;
+    char dir[96], ic[300], pc[300], tt[300];
+    snprintf(dir, sizeof(dir), "%smedia", ROOT);
+    sceIoMkdir(dir, 0777);
+    snprintf(dir, sizeof(dir), "%smedia/psp", ROOT);
+    sceIoMkdir(dir, 0777);
+    char k[120];
+    int j = 0;
+    for (const char *c = key; *c && j < (int)sizeof(k) - 1; ++c) k[j++] = (isalnum((unsigned char)*c) ? *c : '_');
+    k[j] = 0;
+    snprintf(ic, sizeof(ic), "%s/%s-icon0.png", dir, k);
+    snprintf(pc, sizeof(pc), "%s/%s-pic1.png", dir, k);
+    snprintf(tt, sizeof(tt), "%s/%s-title.txt", dir, k);
+    if (exists(ic)) {                                   /* done on an earlier scan */
+        snprintf(cover, 300, "%s", ic);
+        if (exists(pc)) snprintf(bg, 300, "%s", pc);
+        SceUID fd = sceIoOpen(tt, SCE_O_RDONLY, 0);
+        if (fd >= 0) { char t[160] = {0}; int n = sceIoRead(fd, t, sizeof(t) - 1); sceIoClose(fd); if (n > 0) snprintf(title, tmax, "%s", t); }
+        return;
+    }
+    static unsigned char big[768 * 1024];
+    const char *dot = strrchr(path, '.');
+    int pbp = dot && !strcasecmp(dot, ".pbp");
+    char t[160] = "";
+    if (pbp) {
+        SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+        if (fd < 0) return;
+        unsigned char h[40];
+        if (sceIoRead(fd, h, 40) == 40 && !memcmp(h, "\0PBP", 4)) {
+            unsigned int o[8];
+            for (int i = 0; i < 8; ++i) o[i] = h[8 + i * 4] | h[9 + i * 4] << 8 | h[10 + i * 4] << 16 | (unsigned)h[11 + i * 4] << 24;
+            /* o[0] param.sfo, o[1] icon0, o[2] icon1, o[3] pic0, o[4] pic1, o[5] snd0, o[6] data.psp */
+            for (int which = 0; which < 2; ++which) {
+                unsigned int a = which ? o[4] : o[1], b = which ? o[5] : o[2];
+                if (b > a && b - a <= sizeof(big) && sceIoLseek(fd, a, SCE_SEEK_SET) >= 0 && sceIoRead(fd, big, b - a) == (int)(b - a))
+                    save_blob(which ? pc : ic, big, b - a);
+            }
+        }
+        sceIoClose(fd);
+    } else {
+        Disc d;
+        if (disc_open(&d, path) < 0) return;
+        int n = disc_file(&d, "ICON0.PNG", big, sizeof(big));
+        if (n > 0) save_blob(ic, big, n);
+        n = disc_file(&d, "PIC1.PNG", big, sizeof(big));
+        if (n > 0) save_blob(pc, big, n);
+        n = disc_file(&d, "PARAM.SFO", big, sizeof(big));
+        if (n > 0 && sfo_value(big, n, "TITLE", t, sizeof(t)) == 0 && t[0]) {
+            SceUID fd = sceIoOpen(tt, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+            if (fd >= 0) { sceIoWrite(fd, t, strlen(t)); sceIoClose(fd); }
+            snprintf(title, tmax, "%s", t);
+        }
+        sceIoClose(d.fd);
+    }
+    if (exists(ic)) snprintf(cover, 300, "%s", ic);
+    if (exists(pc)) snprintf(bg, 300, "%s", pc);
+}
+
 /* PSP and PS1-on-Adrenaline games, wherever Adrenaline users keep them
  * (Reddit, 2026-09-27: "it won't recognise my PSP games"): ISO/CSO images in
  * pspemu/ISO on ux0 or uma0, and EBOOT.PBP folders in pspemu/PSP/GAME. PS1
@@ -407,8 +585,8 @@ static int sys_by_id(const char *id) {
 static void scan_psp(void) {
     if (!exists("ux0:app/PSPEMUCFW/eboot.bin")) return;   /* Adrenaline */
     int psx = sys_by_id("psx");
-    static const char *const roots[] = {"ux0:pspemu", "uma0:pspemu", "imc0:pspemu"};
-    for (int r = 0; r < 3; ++r) {
+    static const char *const roots[] = {"ux0:pspemu", "uma0:pspemu", "imc0:pspemu", "xmc0:pspemu", "grw0:pspemu"};
+    for (int r = 0; r < 5; ++r) {
         char dir[64];
         snprintf(dir, sizeof(dir), "%s/ISO", roots[r]);
         List l = list_dir(dir);
@@ -425,16 +603,21 @@ static void scan_psp(void) {
                     const char *d2 = strrchr(s2.names[j], '.');
                     if (!d2 || (strcasecmp(d2, ".iso") && strcasecmp(d2, ".cso"))) continue;
                     snprintf(path, sizeof(path), "%s/%s", sub, s2.names[j]);
-                    if (!seen_rom(path)) add(PSP, nm, "psp", path, "", "", "");
+                    if (seen_rom(path)) continue;
+                    char title[160], cover[300], bg[300];
+                    snprintf(title, sizeof(title), "%s", nm);
+                    psp_art(path, s2.names[j], title, sizeof(title), cover, bg);
+                    add(PSP, title, "psp", path, "", cover, bg);
                 }
                 list_free(&s2);
                 continue;
             }
             snprintf(path, sizeof(path), "%s/%s", dir, nm);
             if (seen_rom(path)) continue;
-            char title[160];
+            char title[160], cover[300], bg[300];
             snprintf(title, sizeof(title), "%.*s", (int)(dot - nm), nm);
-            add(PSP, title, "psp", path, "", "", "");
+            psp_art(path, nm, title, sizeof(title), cover, bg);   /* the disc's own title and art */
+            add(PSP, title, "psp", path, "", cover, bg);
         }
         list_free(&l);
         snprintf(dir, sizeof(dir), "%s/PSP/GAME", roots[r]);
@@ -445,7 +628,10 @@ static void scan_psp(void) {
             if (!exists(eboot) || seen_rom(eboot)) continue;
             if (pbp_info(eboot, title, sizeof(title), cat, sizeof(cat)) < 0) snprintf(title, sizeof(title), "%s", l.names[i]);
             int ps1 = !strcmp(cat, "ME");
-            add(ps1 && psx >= 0 ? psx : PSP, title, "psp", eboot, "", "", "");
+            char cover[300], bg[300], keep[160];
+            snprintf(keep, sizeof(keep), "%s", title);
+            psp_art(eboot, l.names[i], keep, sizeof(keep), cover, bg);
+            add(ps1 && psx >= 0 ? psx : PSP, title, "psp", eboot, "", cover, bg);
         }
         list_free(&l);
     }
