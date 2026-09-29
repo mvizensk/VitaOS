@@ -744,6 +744,7 @@ int main(void) {
         }
         library_poll(tab == T_PLAY);
         art_auto_tick();
+        update_tick();                                /* a downloaded update hands over to VitaOS Updater */
         STAGE("tab body");
         if (tab != T_PLAY && tab != T_HOME) ui_ambient(1.0f);   /* Play and Home lay it over their art */
         switch (tab) {

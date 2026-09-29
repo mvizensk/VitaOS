@@ -585,6 +585,36 @@ static void install(App *a) {
     ui_toast(toast, C_OK);
 }
 
+float store_job_frac(void) { return job_frac; }   /* the last download's progress, 0..1 */
+
+/* For VitaOS's own update (update.c): unpack a VPK and write its head.bin,
+ * ready for the promoter; the title ID comes back in tid. */
+int store_prepare_pkg(const char *vpk, const char *pkg, char tid[10]) {
+    remove_tree(pkg);
+    int rc = extract_zip(vpk, pkg);
+    if (rc < 0) { remove_tree(pkg); return rc; }
+    memset(tid, 0, 10);
+    if (sfo_title_id(pkg, tid) < 0 || strlen(tid) != 9) { remove_tree(pkg); return -3; }
+    rc = write_head_bin(pkg, tid);
+    if (rc < 0) remove_tree(pkg);
+    return rc;
+}
+
+/* Install a prepared folder (used for the updater app, never VitaOS itself). */
+int store_install_dir(const char *pkg) {
+    int rc = promote(pkg);
+    if (rc < 0) return rc;
+    for (int i = 0; i < 600; ++i) {
+        int state = 0;
+        if (scePromoterUtilityGetState(&state) < 0 || !state) break;
+        sceKernelDelayThread(100 * 1000);
+    }
+    int result = 0;
+    scePromoterUtilityGetResult(&result);
+    remove_tree(pkg);
+    return result;
+}
+
 static int worker(SceSize args, void *argp) {
     (void)args; (void)argp;
     sceIoMkdir(DIR, 0777);

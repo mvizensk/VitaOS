@@ -366,7 +366,7 @@ void settings_update(const Input *in) {
         const char *vitaos_items[7] = {"Find games again", "Download box art", "About VitaOS", boot_label,
                                        movies_label, music_label, get_label};
         const char *newer = update_newer();
-        if (newer) snprintf(get_label, sizeof(get_label), "Get VitaOS %s", newer);
+        if (newer) snprintf(get_label, sizeof(get_label), "Update to VitaOS %s", newer);
         int pick = focus == F_ABOUT ? ui_menu("VitaOS", (const char *const *)vitaos_items, newer ? 7 : 6) : -1;
         if (pick == 4 || pick == 5) {                /* Reddit, 2026-09-27: hide Movies and Music */
             const char *flag = pick == 4 ? "ux0:data/arcadehub/user/hide-movies" : "ux0:data/arcadehub/user/hide-music";
@@ -502,8 +502,26 @@ void settings_update(const Input *in) {
         snprintf(t, sizeof(t), "X Theme: %s accent, %s background",
                  ui_theme_accent_name(ui_theme_accent_index()), ui_theme_bg_name(ui_theme_bg()));
         int ty = R2 + CH + 6;
-        if (in->tapped && in->tap_x >= C1 && in->tap_x < C3 + CW && in->tap_y >= ty && in->tap_y < ty + 28) focus = F_THEME;
-        if (focus == F_THEME) vita2d_draw_rectangle(C1 + 2, ty, C3 + CW - C1 - 4, 28, C_SEL);
-        draw_hints(C1 + 18, ty + 14, t, focus == F_THEME ? C_TEXT : C_DIM, C3 + CW - 20);
+        /* A newer VitaOS takes the right third of the row as an Update button
+         * (2026-09-29: "an update button in the settings"): START or a tap. */
+        const char *nv = update_newer(), *um = "";
+        float uf = 0;
+        int st = update_stage(&um, &uf), upd = nv || st;
+        int tx_end = upd ? C3 - 8 : C3 + CW;
+        if (in->tapped && in->tap_x >= C1 && in->tap_x < tx_end && in->tap_y >= ty && in->tap_y < ty + 28) focus = F_THEME;
+        if (focus == F_THEME) vita2d_draw_rectangle(C1 + 2, ty, tx_end - C1 - 4, 28, C_SEL);
+        draw_hints(C1 + 18, ty + 14, t, focus == F_THEME ? C_TEXT : C_DIM, tx_end - 20);
+        if (upd) {
+            int bx = C3, bw = CW;
+            if (!st && ((in->pressed & SCE_CTRL_START) ||
+                        (in->tapped && in->tap_x >= bx && in->tap_x < bx + bw && in->tap_y >= ty && in->tap_y < ty + 28))) update_get();
+            draw_round_rect(bx, ty, bw, 28, 14, st == 9 ? RGBA8(200, 60, 60, 200) : C_ACCENT);
+            char label[112];
+            if (!st) snprintf(label, sizeof(label), "START  Update to VitaOS %s", nv);
+            else if (st == 1) snprintf(label, sizeof(label), "Downloading %d%%", (int)(uf * 100));
+            else snprintf(label, sizeof(label), "%s", um);
+            if (st == 1) vita2d_draw_rectangle(bx + 14, ty + 23, (bw - 28) * uf, 2, RGBA8(255, 255, 255, 200));
+            text_fit(bold, bx + 14, ty + 19, RGBA8(255, 255, 255, 255), 14, label, bw - 28);
+        }
     }
 }

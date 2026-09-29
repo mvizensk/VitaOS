@@ -29,6 +29,14 @@ jobs:
           make
           printf '#!/bin/bash\nmkdir -p $@\n' > util/mkdir-p.pl
           make install_sw
+      # The VitaOS Updater (one-press updates) ships inside VitaOS as
+      # assets/updater.vpk: built from updater/ first, then bundled.
+      - name: VitaOS Updater
+        run: |
+          mkdir updater/build && cd updater/build
+          cmake ..
+          make
+          cp updater.vpk ../../assets/updater.vpk
       - name: VitaOS
         run: |
           mkdir build && cd build
