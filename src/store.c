@@ -118,6 +118,11 @@ static int by_popular(const void *a, const void *b) {
 static int sort_new;                  /* 0 popular (default), 1 newest */
 static void draw_magnifier(float cx, float cy, unsigned int c);
 static void check_inst(App *a);
+static int updatable(const App *a);                   /* one press can install it: a VPK, not blocked */
+static void installed_load(void);
+static void swap_in(void);
+static void installed_note(const App *a);
+static volatile int queue_failed;
 static volatile int updates_n = -1, queue[64], queue_n, queue_i;   /* update all: indices into apps */
 static int has_update(App *a);        /* defined below, by the install/SFO code; filter() wants it for Updates */
 
@@ -259,7 +264,8 @@ static int load_catalog(void) {                       /* worker thread */
     /* Which installed apps are behind the catalogue, here on the worker, so
      * Home can say "3 app updates" without opening the Store (2026-10-01). */
     int up = 0;
-    for (int i = 0; i < nspare; ++i) { check_inst(&spare[i]); up += spare[i].inst == 3; }
+    installed_load();
+    for (int i = 0; i < nspare; ++i) { check_inst(&spare[i]); up += spare[i].inst == 3 && updatable(&spare[i]); }
     updates_n = up;
     spare_ready = 1;
     return 0;
@@ -633,6 +639,8 @@ static void install(App *a) {
     remove_tree(pkg);
     if (result < 0) { snprintf(job_msg, sizeof(job_msg), "Install failed (0x%08X)", result); job_stage = 9; return; }
     snprintf(job_msg, sizeof(job_msg), "Installed: it is first in Apps");
+    installed_note(a);
+    installed_load();
     job_stage = 4;
     apps_prewarm();                                   /* new apps go to the top of the grid */
     char toast[96];
@@ -682,6 +690,7 @@ static int worker(SceSize args, void *argp) {
             App *a = &apps[installing];
             install(a);
             if (job_stage == 4) { a->inst = 2; if (updates_n > 0) updates_n--; }
+            else if (queue_n) queue_failed++;
             installing = -1;
             if (queue_i < queue_n) continue;
         }
@@ -780,13 +789,54 @@ static const char *type_name(const App *a) {
 /* inst: 0 not checked, 1 not installed, 2 installed and current, 3 installed
  * but behind the catalogue. The APP_VER read only happens for apps that are
  * actually on the Vita, and only once (cached here like the install check). */
+/* The catalogue version of each app VitaOS installed ("TITLEID\tversion" lines):
+ * the honest yardstick for updates, since many homebrew never set APP_VER
+ * (00.00) or leave the 01.00 default (2026-10-02: Home counted those as updates). */
+#define INSTALLED DIR "/installed.tsv"
+static char *installed_blob;
+static void installed_load(void) {                    /* the old copy is left for any reader mid-scan: a few KB */
+    SceUID fd = sceIoOpen(INSTALLED, SCE_O_RDONLY, 0);
+    if (fd < 0) return;
+    int size = (int)sceIoLseek(fd, 0, SCE_SEEK_END);
+    sceIoLseek(fd, 0, SCE_SEEK_SET);
+    char *b = size > 0 && size < 256 * 1024 ? malloc(size + 1) : NULL;
+    int n = b ? sceIoRead(fd, b, size) : 0;
+    sceIoClose(fd);
+    if (b) { b[n > 0 ? n : 0] = 0; installed_blob = b; }
+}
+static int installed_version(const char *tid, char *out, int max) {
+    if (!installed_blob || !tid[0]) return 0;
+    char key[16];
+    snprintf(key, sizeof(key), "%s\t", tid);
+    const char *last = NULL;
+    for (const char *p = installed_blob; (p = strstr(p, key)) != NULL; p += 1)
+        if (p == installed_blob || p[-1] == '\n') last = p;   /* the newest line wins */
+    if (!last) return 0;
+    last += strlen(key);
+    int n = 0;
+    while (last[n] && last[n] != '\n' && n < max - 1) { out[n] = last[n]; ++n; }
+    out[n] = 0;
+    return 1;
+}
+static void installed_note(const App *a) {
+    SceUID fd = sceIoOpen(INSTALLED, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0666);
+    if (fd < 0) return;
+    char line[96];
+    int n = snprintf(line, sizeof(line), "%s\t%s\n", a->titleid, a->version);
+    sceIoWrite(fd, line, n);
+    sceIoClose(fd);
+}
+
 static void check_inst(App *a) {
     char dir[48], p[64], ver[16];
     SceIoStat st;
     snprintf(dir, sizeof(dir), "ux0:app/%s", a->titleid);
     snprintf(p, sizeof(p), "%s/eboot.bin", dir);
-    if (!a->titleid[0] || sceIoGetstat(p, &st) < 0) a->inst = 1;
-    else a->inst = sfo_app_ver(dir, ver) >= 0 && version_older(ver, a->version) ? 3 : 2;
+    if (!a->titleid[0] || sceIoGetstat(p, &st) < 0) { a->inst = 1; return; }
+    char had[48];
+    if (installed_version(a->titleid, had, sizeof(had))) a->inst = strcmp(had, a->version) && !version_older(a->version, had) ? 3 : 2;
+    else if (sfo_app_ver(dir, ver) < 0 || !strcmp(ver, "00.00") || !strcmp(ver, "01.00")) a->inst = 2;   /* no real version: no claim */
+    else a->inst = version_older(ver, a->version) ? 3 : 2;
 }
 
 static int is_installed(App *a) {
@@ -800,32 +850,52 @@ static int has_update(App *a) { is_installed(a); return a->inst == 3; }
  * catalogue. Cheap once the catalogue and inst cache are warm (an int
  * compare per app); the first pass over an unchecked app still costs an
  * sceIoGetstat and, if installed, an SFO read. */
+static int updatable(const App *a) {
+    /* VitaOS updates itself through Settings (the Updater), never over itself from here */
+    if (!strcmp(a->titleid, "VITAOS001") || !strcmp(a->titleid, "VTOSUPDTR") || !strncmp(a->titleid, "MVZA", 4)) return 0;
+    int n = (int)strlen(a->url);
+    return !denied(a) && n > 4 && !strcasecmp(a->url + n - 4, ".vpk");
+}
+
 int store_updates_count(void) { return updates_n; }
 
 /* Home's "N app updates" tile: X asks once, then the worker installs them in turn. */
 int store_update_all(void) {
     if (updates_n <= 0 || installing >= 0 || queue_i < queue_n) return 0;
+    /* Home asks before the Store tab was ever opened: the checked list is still
+     * waiting to be swapped in (2026-10-02: "1 update", then "nothing to update"). */
+    if (spare_ready) swap_in();
     char names[220] = "";
     int n = 0, len = 0;
     for (int i = 0; i < napps && n < 64; ++i) {
-        if (apps[i].inst != 3 || denied(&apps[i])) continue;
-        int is_vpk = strlen(apps[i].url) > 4 && !strcasecmp(apps[i].url + strlen(apps[i].url) - 4, ".vpk");
-        if (!is_vpk) continue;
+        if (apps[i].inst != 3 || !updatable(&apps[i])) continue;
         queue[n++] = i;
         if (len < 160) len += snprintf(names + len, sizeof(names) - len, "%s%s", len ? ", " : "", apps[i].name);
     }
-    if (!n) return 0;
+    if (!n) {                                         /* never a silent X (2026-10-02) */
+        ui_message("Nothing to update here", "Those updates cannot be installed with one press: open the Store's Updates section.");
+        return 0;
+    }
     char msg[320];
     snprintf(msg, sizeof(msg), "Update %d app%s: %s%s?", n, n == 1 ? "" : "s", names, len >= 160 ? "..." : "");
     if (!ui_confirm("Update all", msg)) return 0;
-    queue_n = n; queue_i = 0;
+    queue_n = n; queue_i = 0; queue_failed = 0;
     kick();
     return n;
 }
 
 /* While an update-all runs: which one (1-based) of how many; 0 when idle. */
 int store_update_progress(int *of, float *frac) {
-    if (queue_n == 0 || (queue_i >= queue_n && installing < 0)) { if (queue_n) queue_n = queue_i = 0; return 0; }
+    if (queue_n == 0 || (queue_i >= queue_n && installing < 0)) {
+        if (queue_n) {                                /* the run just ended: say how it went */
+            char m[80];
+            if (queue_failed) snprintf(m, sizeof(m), "%d of %d apps updated", queue_n - queue_failed, queue_n);
+            else snprintf(m, sizeof(m), "%d app%s updated", queue_n, queue_n == 1 ? "" : "s");
+            ui_toast(m, queue_failed ? C_BAD : C_OK);
+            queue_n = queue_i = 0;
+        }
+        return 0;
+    }
     *of = queue_n;
     *frac = job_frac;
     return queue_i;
@@ -885,7 +955,9 @@ static int detail_page(const Input *in, unsigned int p) {
     if (p & SCE_CTRL_CIRCLE && installing < 0) { detail = 0; job_stage = 0; return 1; }
     if (p & SCE_CTRL_CROSS && installing < 0 && job_stage != 4) {
         int is_vpk = strlen(a->url) > 4 && !strcasecmp(a->url + strlen(a->url) - 4, ".vpk");
-        if (denied(a)) ui_message("Not installing this one", a->blocked[0] ? a->blocked : "It wedged the shell on this Vita before (2026-09-19).");
+        if (!strcmp(a->titleid, "VITAOS001") || !strncmp(a->titleid, "MVZA", 4))
+            ui_message("That's VitaOS itself", "Update VitaOS from Settings > VitaOS > Update: it closes, installs and comes back.");
+        else if (denied(a)) ui_message("Not installing this one", a->blocked[0] ? a->blocked : "It wedged the shell on this Vita before (2026-09-19).");
         else if (!is_vpk) ui_message("Not a VPK", "This one downloads as an archive; install it by hand.");
         else {
             char msg[300];

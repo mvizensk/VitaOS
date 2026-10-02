@@ -520,7 +520,12 @@ act: {
             music_resume();
         } else if (it->kind == K_UPD) {
             int of; float f;
-            if (!store_update_progress(&of, &f) && store_update_all() > 0) ui_toast("Updating apps in the background", C_ACCENT);
+            int doing = store_update_progress(&of, &f);
+            if (doing) {
+                char m[64];
+                snprintf(m, sizeof(m), "Updating %d of %d (%d%%)", doing, of, (int)(f * 100));
+                ui_toast(m, C_ACCENT);
+            } else if (store_update_all() > 0) ui_toast("Updating apps in the background", C_ACCENT);
         }   /* K_WEEK: nothing to act on, just a card */
     }
 draw:

@@ -21,7 +21,7 @@
 typedef struct { short *pcm; int len; } Sound;
 static Sound sounds[SFX_COUNT];
 static struct { int id, pos; } voice[VOICES];
-static volatile int level = 6, ambient_level = 3;
+static volatile int level = 6, ambient_level = 0;   /* Home music off unless chosen (2026-10-02: "no sound on the lobby") */
 /* Home's ambient bed: a 32 s loop of slow chords, made in the background. */
 #define BED_SEC 32
 static short *bed;
@@ -96,25 +96,30 @@ static int make_bed(SceSize args, void *argp) {
     int len = RATE * BED_SEC, seg = len / 4;
     short *b = malloc(len * sizeof(short));
     if (!b) return 0;
-    float ph[4][8] = {{0}};
+    /* Phases wrap at 2 pi. Left to grow over 1.5 M samples they reached ~60,000
+     * radians, where a float keeps too few bits for a 0.04 rad step: the pad
+     * came out gritty, a constant glitch on Home (red Vita, 2026-10-02). */
+    double ph[4][8] = {{0}};
+    const double TAU = 2 * M_PI;
+#define STEP(p, inc) ((p) += (inc), (p) >= TAU ? ((p) -= TAU) : (p))   /* cheaper than fmod: steps are tiny */
     for (int i = 0; i < len; ++i) {
-        float t = (float)i / RATE, v = 0;
+        float t = (float)i / RATE, v = 0;   /* t only drives the slow tremolo: float is plenty */
         int c = i / seg;
         float u = (float)(i % seg) / seg;
         float fade = u < 0.25f ? u / 0.25f : u > 0.75f ? (1 - u) / 0.25f : 1;   /* chords swell and give way */
         for (int k = 0; k < 4; ++k) {
             float f = chords[c][k];
-            ph[c][k] += 2 * (float)M_PI * f / RATE;
-            ph[c][k + 4] += 2 * (float)M_PI * f * 2.003f / RATE;             /* a detuned octave: shimmer */
+            STEP(ph[c][k], TAU * f / RATE);
+            STEP(ph[c][k + 4], TAU * f * 2.003 / RATE);                        /* a detuned octave: shimmer */
             float trem = 0.8f + 0.2f * sinf(t * (0.13f + k * 0.05f));
-            v += (sinf(ph[c][k]) + 0.25f * sinf(ph[c][k + 4])) * trem * 0.22f;
+            v += (sinf((float)ph[c][k]) + 0.25f * sinf((float)ph[c][k + 4])) * trem * 0.22f;
         }
         /* the next chord fades in underneath the last quarter */
         if (u > 0.75f) {
             int n = (c + 1) % 4;
             for (int k = 0; k < 4; ++k) {
-                ph[n][k] += 2 * (float)M_PI * chords[n][k] / RATE;
-                v += sinf(ph[n][k]) * 0.22f * ((u - 0.75f) / 0.25f) * 0.9f;
+                STEP(ph[n][k], TAU * chords[n][k] / RATE);
+                v += sinf((float)ph[n][k]) * 0.22f * ((u - 0.75f) / 0.25f) * 0.9f;
             }
             v *= 0.8f;
         }
