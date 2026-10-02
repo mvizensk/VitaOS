@@ -143,53 +143,115 @@ static void clean_title(const char *in, char *out, int max) {
     else snprintf(out, max, "%s", head);
 }
 
+/* The Wikipedia page for a game: its summary (kept only if it says it is a
+ * game) and its infobox picture, usually the box art. `body` must be set. */
+static int net_failed;                    /* a lookup hit an error (429, timeout), not just "no page" */
+static void lookup(const char *title, char *text, int tmax, char *img, int imax) {
+    net_failed = 0;
+    char q[200], eq[400], url[600], page[200] = "", ep[400];
+    text[0] = 0;
+    if (img) img[0] = 0;
+    clean_title(title, q, sizeof(q));
+    char search[240];
+    snprintf(search, sizeof(search), "%s video game", q);
+    query_escape(search, eq, sizeof(eq));
+    snprintf(url, sizeof(url),
+             "https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=5&srprop=&format=json&srsearch=%s", eq);
+    if (get(url) != 0) { net_failed = 1; return; }
+    {
+        /* The top hit can be a compilation or a remake ("A Link to the Past and
+         * Four Swords" for A Link to the Past): prefer the page named exactly
+         * like the game, or "<name> (... video game)", then the top hit. */
+        char first[200] = "";
+        int ql = (int)strlen(q);
+        for (const char *r = body; (r = strstr(r, "\"title\":\"")) != NULL; r += 9) {
+            char t[200];
+            if (json_string(r, "\"title\":\"", t, sizeof(t)) != 0) continue;
+            if (!first[0]) snprintf(first, sizeof(first), "%s", t);
+            if (!strcasecmp(t, q) || (!strncasecmp(t, q, ql) && t[ql] == ' ' && t[ql + 1] == '(')) {
+                snprintf(page, sizeof(page), "%s", t);
+                break;
+            }
+        }
+        if (!page[0]) snprintf(page, sizeof(page), "%s", first);
+    }
+    if (!page[0]) return;
+    escape(page, ep, sizeof(ep));
+    snprintf(url, sizeof(url), "https://en.wikipedia.org/api/rest_v1/page/summary/%s", ep);
+    char t[1200];
+    /* "platform game", "Metroidvania game", "video game": a game page says game */
+    if (get(url) != 0) { net_failed = 1; return; }
+    if (json_string(body, "\"extract\":\"", t, sizeof(t)) != 0 || !has_ci(t, " game")) return;
+    snprintf(text, tmax, "%s", t);
+    if (img && json_string(body, "\"thumbnail\":{\"source\":\"", img, imax) == 0) {   /* ~320 px, plenty for a tile */
+        char *qm = strchr(img, '?');                 /* "...Box.jpg?utm_source=...": the file type is before it */
+        if (qm) *qm = 0;
+    }
+}
+
 static int fetch(SceSize args, void *argp) {
     (void)args; (void)argp;
-    char title[160], q[200], eq[400], url[600], page[200] = "", ep[400];
+    char title[160];
     snprintf(title, sizeof(title), "%s", want);
     body = malloc(MAX_BODY);
     result[0] = 0;
     if (body) {
-        clean_title(title, q, sizeof(q));
-        char search[240];
-        snprintf(search, sizeof(search), "%s video game", q);
-        query_escape(search, eq, sizeof(eq));
-        snprintf(url, sizeof(url),
-                 "https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=5&srprop=&format=json&srsearch=%s", eq);
-        if (get(url) == 0) {
-            /* The top hit can be a compilation or a remake ("A Link to the Past and
-             * Four Swords" for A Link to the Past): prefer the page named exactly
-             * like the game, or "<name> (... video game)", then the top hit. */
-            char first[200] = "";
-            page[0] = 0;
-            int ql = (int)strlen(q);
-            for (const char *r = body; (r = strstr(r, "\"title\":\"")) != NULL; r += 9) {
-                char t[200];
-                if (json_string(r, "\"title\":\"", t, sizeof(t)) != 0) continue;
-                if (!first[0]) snprintf(first, sizeof(first), "%s", t);
-                if (!strcasecmp(t, q) || (!strncasecmp(t, q, ql) && t[ql] == ' ' && t[ql + 1] == '(')) {
-                    snprintf(page, sizeof(page), "%s", t);
-                    break;
-                }
-            }
-            if (!page[0]) snprintf(page, sizeof(page), "%s", first);
-        }
-        if (page[0]) {
-            escape(page, ep, sizeof(ep));
-            snprintf(url, sizeof(url), "https://en.wikipedia.org/api/rest_v1/page/summary/%s", ep);
-            char text[1200];
-            /* "platform game", "Metroidvania game", "video game": a game page says game */
-            if (get(url) == 0 && json_string(body, "\"extract\":\"", text, sizeof(text)) == 0 && has_ci(text, " game"))
-                snprintf(result, sizeof(result), "%s", text);
-        }
+        lookup(title, result, sizeof(result), NULL, 0);
         free(body);
         body = NULL;
     }
-    cache_put(title, result);                             /* even when empty: do not ask again */
+    if (!net_failed) cache_put(title, result);            /* even when empty: do not ask again (unless it was an error) */
     snprintf(got_for, sizeof(got_for), "%s", title);
     ready = 1;
     busy = 0;
     return sceKernelExitDeleteThread(0);
+}
+
+/* Box art from the game's Wikipedia page, saved to dest_noext + ".jpg" or
+ * ".png" (what Wikipedia serves); the path written to out. Blocking, for a
+ * background thread; waits for a details-page lookup to finish first, and
+ * fills the description cache on the way. 1 saved, 0 none, -1 the network
+ * or Wikipedia said no (rate limit): try again another time. */
+static size_t to_file(char *p, size_t s, size_t n, void *u) { return sceIoWrite(*(SceUID *)u, p, s * n) < 0 ? 0 : s * n; }
+
+int gamedesc_cover(const char *title, const char *dest_noext, char *out, int max) {
+    while (busy) sceKernelDelayThread(100 * 1000);
+    busy = 1;
+    int ok = 0;
+    body = malloc(MAX_BODY);
+    if (body) {
+        char text[900], img[600];
+        lookup(title, text, sizeof(text), img, sizeof(img));
+        free(body);
+        body = NULL;
+        char probe[160];
+        if (net_failed) { busy = 0; return -1; }
+        if (text[0] || gamedesc_cached(title, probe, sizeof(probe)) < 0) cache_put(title, text);   /* a found text beats an old "none" */
+        const char *dot = strrchr(img, '.');
+        if (img[0] && dot && (!strcasecmp(dot, ".jpg") || !strcasecmp(dot, ".jpeg") || !strcasecmp(dot, ".png"))) {
+            snprintf(out, max, "%s%s", dest_noext, !strcasecmp(dot, ".png") ? ".png" : ".jpg");
+            SceUID fd = sceIoOpen(out, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+            CURL *c = fd >= 0 ? curl_easy_init() : NULL;
+            if (c) {
+                curl_easy_setopt(c, CURLOPT_URL, img);
+                curl_easy_setopt(c, CURLOPT_CAINFO, "app0:assets/cacert.pem");
+                curl_easy_setopt(c, CURLOPT_USERAGENT, "VitaOS/1.7 (PS Vita; github.com/mvizensk/VitaOS)");
+                curl_easy_setopt(c, CURLOPT_TIMEOUT, 20L);
+                curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
+                curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, to_file);
+                curl_easy_setopt(c, CURLOPT_WRITEDATA, &fd);
+                long code = 0;
+                ok = curl_easy_perform(c) == CURLE_OK;
+                curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &code);
+                ok = ok && code == 200;
+                curl_easy_cleanup(c);
+            }
+            if (fd >= 0) sceIoClose(fd);
+            if (!ok) { sceIoRemove(out); busy = 0; return -1; }
+        }
+    }
+    busy = 0;
+    return ok;
 }
 
 void gamedesc_request(const char *title) {

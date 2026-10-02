@@ -37,6 +37,7 @@
 #include "memo.h"
 #include "files.h"
 #include "downloads.h"
+#include "battery.h"
 #include "settings.h"
 #include "movies.h"
 #include "music.h"
@@ -506,6 +507,23 @@ static void art_auto_tick(void) {
     if (t < 0 || sceKernelStartThread(t, 0, NULL) < 0) art_running = 0;
 }
 
+/* A Mac-built catalog: add retail Vita games installed since it was built. */
+static volatile int topup_added = -1, wiki_added;
+static int topup_thread(SceSize args, void *argp) {
+    (void)args; (void)argp;
+    int ours = library_is_ours();
+    if (ours == 0) topup_added = library_topup_vita();
+    else while (ours > 0 && lib_done < 0) sceKernelDelayThread(500 * 1000);   /* its own rescan rewrites the file first */
+    /* then box art from Wikipedia for Vita games with no readable picture,
+     * once Wi-Fi is up (it can take a minute after boot) */
+    for (int i = 0; i < 120; ++i) {
+        int st = 0;
+        if (sceNetCtlInetGetState(&st) >= 0 && st == SCE_NETCTL_STATE_CONNECTED) { wiki_added = library_wiki_art(); break; }
+        sceKernelDelayThread(1000 * 1000);
+    }
+    return sceKernelExitDeleteThread(0);
+}
+
 static void library_rescan_start(void) {
     SceUID fd = sceIoOpen(LIB_COUNT, SCE_O_RDONLY, 0);
     if (fd >= 0) { char b[16] = {0}; sceIoRead(fd, b, 15); sceIoClose(fd); lib_before = atoi(b); }
@@ -632,6 +650,10 @@ int main(void) {
     play_init();                 /* catalog, lists, the agent remote, launch requests */
     playtime_init();             /* the time of a game Home launched before it closed */
     if (lib_ours > 0) library_rescan_start();
+    {
+        SceUID tt = sceKernelCreateThread("lib_topup", topup_thread, 0x10000110, 0x8000, 0, 0, NULL);
+        if (tt >= 0) sceKernelStartThread(tt, 0, NULL);
+    }
     int net = net_up();
     files_init();
     if (net >= 0) downloads_init();
@@ -738,11 +760,28 @@ int main(void) {
             else if (to == SEARCH_TO_MUSIC) tab = T_MUSIC;
             else if (to == SEARCH_TO_SETTINGS) tab = T_SETTINGS;
             else if (to == SEARCH_TO_PLAY) tab = T_PLAY;
+            else if (to == SEARCH_TO_STORE) { tab = T_DOWNLOADS; downloads_show_store(); }
             ui_draw_toasts();
             ui_end_frame();
             continue;
         }
         library_poll(tab == T_PLAY);
+        battery_tick();                                  /* Settings > Battery health measures time per charge */
+        if (topup_added > 0 && tab != T_PLAY) {          /* not under the player's feet */
+            char m[48];
+            snprintf(m, sizeof(m), "%d new game%s in Play", topup_added, topup_added == 1 ? "" : "s");
+            topup_added = 0;
+            play_reload();
+            apps_prewarm();                              /* they leave Apps for Play */
+            ui_toast(m, C_ACCENT);
+        }
+        if (wiki_added > 0 && tab != T_PLAY) {
+            char m[48];
+            snprintf(m, sizeof(m), "Box art found for %d game%s", wiki_added, wiki_added == 1 ? "" : "s");
+            wiki_added = 0;
+            play_reload();
+            ui_toast(m, C_ACCENT);
+        }
         art_auto_tick();
         update_tick();                                /* a downloaded update hands over to VitaOS Updater */
         STAGE("tab body");

@@ -17,6 +17,7 @@
 #include <psp2/kernel/threadmgr.h>
 
 #include "ui.h"
+#include "lang.h"
 #include "video.h"
 
 UiFont *font, *bold;
@@ -193,7 +194,7 @@ void ui_toast(const char *text, unsigned int color) {
     if (toast_lock < 0) toast_lock = sceKernelCreateSema("toast", 0, 1, 1, NULL);
     sceKernelWaitSema(toast_lock, 1, NULL);
     unsigned int i = toast_head++ % TOASTS;
-    snprintf(toasts[i].text, sizeof(toasts[i].text), "%s", text);
+    snprintf(toasts[i].text, sizeof(toasts[i].text), "%s", tr(text));
     toasts[i].color = color;
     toasts[i].frames = 240;                      /* 4 s */
     sceKernelSignalSema(toast_lock, 1);
@@ -219,6 +220,7 @@ void ui_draw_toasts(void) {
 
 /* Word-wrapped text, up to max_lines; newlines start a new line. */
 void draw_wrapped_text(const char *s, int x, int y, int width, int size, int max_lines, unsigned int color) {
+    s = tr(s);
     char line[512] = {0};
     int lines = 0, len = 0;
     const char *p = s;
@@ -251,7 +253,7 @@ void draw_wrapped_text(const char *s, int x, int y, int width, int size, int max
  * up a frame or two later. Evicted textures are freed at the start of the next
  * frame, after the GPU has finished with them. */
 #define IMGS 160
-typedef struct { char path[200]; vita2d_texture *tex; volatile int state; unsigned int used; } Img;   /* 0 free 1 queued 2 loading 3 ready 4 failed */
+typedef struct { char path[200]; vita2d_texture *tex; volatile int state; unsigned int used; int tries; SceUInt64 failed_at; } Img;   /* 0 free 1 queued 2 loading 3 ready 4 failed */
 static Img imgs[IMGS];
 static unsigned int img_tick;
 static SceUID img_sema = -1, img_lock = -1;
@@ -304,6 +306,7 @@ static int img_worker(SceSize args, void *argp) {
                                                                                   : vita2d_load_PNG_file(path);
             if (t && round) round_corners(t, 0.22f);
             imgs[pick].tex = t;
+            if (!t) { imgs[pick].tries++; imgs[pick].failed_at = sceKernelGetProcessTimeWide(); }
             imgs[pick].state = t ? 3 : 4;
         }
     }
@@ -320,7 +323,17 @@ vita2d_texture *ui_image(const char *path) {
     }
     int victim = -1;
     for (int i = 0; i < IMGS; ++i) {
-        if (imgs[i].state && !strcmp(imgs[i].path, path)) { imgs[i].used = ++img_tick; return imgs[i].state == 3 ? imgs[i].tex : NULL; }
+        if (imgs[i].state && !strcmp(imgs[i].path, path)) {
+            imgs[i].used = ++img_tick;
+            /* A failure can be passing (memory or the card busy at startup): try
+             * twice more, 2 s apart. Red Vita's Apps icons stayed blank until
+             * scrolled out of the cache and back (2026-10-01). */
+            if (imgs[i].state == 4 && imgs[i].tries < 3 && sceKernelGetProcessTimeWide() - imgs[i].failed_at > 2000000) {
+                imgs[i].state = 1;
+                sceKernelSignalSema(img_sema, 1);
+            }
+            return imgs[i].state == 3 ? imgs[i].tex : NULL;
+        }
         if (!imgs[i].state) victim = i;
     }
     sceKernelWaitSema(img_lock, 1, NULL);
@@ -332,6 +345,7 @@ vita2d_texture *ui_image(const char *path) {
         imgs[victim].tex = NULL;
         snprintf(imgs[victim].path, sizeof(imgs[victim].path), "%s", path);
         imgs[victim].used = ++img_tick;
+        imgs[victim].tries = 0;
         imgs[victim].state = 1;
     }
     sceKernelSignalSema(img_lock, 1);
@@ -837,6 +851,7 @@ void ui_init(void) {
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
     sceMotionStartSampling();
+    lang_init();                                     /* before anything is drawn */
     font = uifont_load("app0:assets/Inter-Regular.ttf");
     bold = uifont_load("app0:assets/Inter-Bold.ttf");
     ui_theme_load();
@@ -927,13 +942,15 @@ void ui_read_input(Input *in) {
 
 }
 
-int text_w(UiFont *f, int size, const char *s) { return uifont_width(f, size, s); }
+/* Every drawn string is translated here, and sized for Settings > Text size (lang.c). */
+int text_w(UiFont *f, int size, const char *s) { return uifont_width(f, text_bump(size), tr(s)); }
 
 void text(UiFont *f, int x, int y, unsigned int color, int size, const char *s) {
-    uifont_draw(f, x, y, color, size, s);
+    uifont_draw(f, x, y, color, text_bump(size), tr(s));
 }
 
 void text_fit(UiFont *f, int x, int y, unsigned int color, int size, const char *s, int max_w) {
+    s = tr(s);
     if (text_w(f, size, s) <= max_w) { text(f, x, y, color, size, s); return; }
     char buf[300];
     int n = (int)strlen(s);
@@ -1069,7 +1086,20 @@ void draw_header(const char *const tabs[], int ntabs, int active, const char *co
     uw += (aw - uw) * 0.28f;
     float travel = ax - ux < 0 ? ux - ax : ax - ux;
     float stretch = travel > 2 ? travel * 0.15f : 0;
-    vita2d_draw_rectangle(ux - stretch / 2, 58, uw + stretch, 3, C_ACCENT);
+    /* Each tab its own underline colour (2026-10-01: Movies was yellow from
+     * its poster theme, every other tab the plain accent). By name, so a
+     * hidden tab does not shift the others' colours. The colour glides too. */
+    static const struct { const char *name; unsigned int rgb; } tint[] = {
+        {"Home", 0x60A5FA}, {"Play", 0x34D399}, {"Movies", 0xFBBF24}, {"Music", 0xF472B6},
+        {"Apps", 0xA78BFA}, {"Files", 0x22D3EE}, {"Store", 0xFB923C}, {"Settings", 0x94A3B8}};
+    unsigned int want = 0x60A5FA;
+    for (unsigned int k = 0; k < sizeof(tint) / sizeof(tint[0]); ++k)
+        if (active >= 0 && active < ntabs && !strcmp(tabs[active], tint[k].name)) want = tint[k].rgb;
+    static float cr = -1, cg, cb;
+    float tr = (want >> 16) & 255, tg = (want >> 8) & 255, tb = want & 255;
+    if (cr < 0) { cr = tr; cg = tg; cb = tb; }
+    cr += (tr - cr) * 0.2f; cg += (tg - cg) * 0.2f; cb += (tb - cb) * 0.2f;
+    vita2d_draw_rectangle(ux - stretch / 2, 58, uw + stretch, 3, RGBA8((int)cr, (int)cg, (int)cb, 255));
     char right[64]; int right_x;
     header_clock_text(right, sizeof(right), &right_x);
     text_right(font, W - 30, 41, C_DIM, 18, right);

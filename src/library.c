@@ -22,12 +22,14 @@
 #include <strings.h>
 #include <ctype.h>
 #include <psp2/io/fcntl.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/io/dirent.h>
 #include <psp2/io/stat.h>
 #include <curl/curl.h>
 #include <zlib.h>
 #include "library.h"
 #include "apps.h"
+#include "gamedesc.h"
 
 static char ROOT_[64] = "ux0:data/arcadehub/";
 #define ROOT ROOT_
@@ -726,6 +728,147 @@ static void write_shelf(const char *id, int sys) {
 }
 
 static int count_of(int sys) { int n = 0; for (int i = 0; i < nrows; ++i) n += rows[i].sys == sys; return n; }
+
+/* A Mac-built catalog is otherwise left alone, so a retail Vita game
+ * installed after it was built never reached Play (red Vita, 2026-10-01: 23
+ * games, and Apps showed them instead). Appends a row for each one the PS
+ * Vita shelf lacks; the next Mac build replaces the file anyway. Returns how
+ * many were added. Background thread: reads every param.sfo it adds. */
+int library_topup_vita(void) {
+    if (library_is_ours() != 0) return 0;
+    char path[128];
+    snprintf(path, sizeof(path), "%sgames/vita.tsv", ROOT);
+    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (fd < 0) return 0;
+    int size = (int)sceIoLseek(fd, 0, SCE_SEEK_END);
+    sceIoLseek(fd, 0, SCE_SEEK_SET);
+    char *shelf = size > 0 && size < 4 * 1024 * 1024 ? malloc(size + 1) : NULL;
+    int n = shelf ? sceIoRead(fd, shelf, size) : 0;
+    sceIoClose(fd);
+    if (!shelf) return 0;
+    shelf[n > 0 ? n : 0] = 0;
+    int ends_nl = n > 0 && shelf[n - 1] == '\n';
+    char *store = NULL;                                 /* homebrew the store calls a game or a port counts too */
+    SceUID sf = sceIoOpen("ux0:data/arcadehub/store/apps.json", SCE_O_RDONLY, 0);
+    if (sf >= 0) {
+        int ss = (int)sceIoLseek(sf, 0, SCE_SEEK_END);
+        sceIoLseek(sf, 0, SCE_SEEK_SET);
+        store = ss > 0 ? malloc(ss + 1) : NULL;
+        int sn = store ? sceIoRead(sf, store, ss) : 0;
+        if (store) store[sn > 0 ? sn : 0] = 0;
+        sceIoClose(sf);
+    }
+    List l = list_dir("ux0:app");
+    int added = 0;
+    SceUID out = -1;
+    for (int i = 0; i < l.n; ++i) {
+        const char *tid = l.names[i];
+        if (strlen(tid) != 9 || !strncmp(tid, "MVZA", 4) || !strncmp(tid, "VITAOS", 6)) continue;
+        int retail = !strncmp(tid, "PCS", 3) && tid[3] >= 'A' && tid[3] <= 'H';
+        if (!retail && !store_says_game(store, tid)) continue;
+        char key[16];
+        snprintf(key, sizeof(key), "\t%s\t", tid);
+        if (strstr(shelf, key)) continue;
+        char title[160], icon[96], pic[96], line[600];
+        sfo_title(tid, title, sizeof(title));
+        if (!title[0] || strchr(title, '\t')) continue;
+        /* retail art in ux0:app is encrypted: always the system's decrypted
+         * copy, which appears once the game is registered */
+        if (retail) {
+            snprintf(icon, sizeof(icon), "ur0:appmeta/%s/icon0.png", tid);
+            snprintf(pic, sizeof(pic), "ur0:appmeta/%s/pic0.png", tid);
+        } else {
+            app_art(tid, "icon0.png", icon, sizeof(icon));
+            app_art(tid, "pic0.png", pic, sizeof(pic));
+        }
+        if (out < 0) out = sceIoOpen(path, SCE_O_WRONLY | SCE_O_APPEND, 0666);
+        if (out < 0) break;
+        int len = snprintf(line, sizeof(line), "%s%s\tapp\t%s\t\t%s\t%s\t\t\t\tGame\t\t\n", ends_nl || added ? "" : "\n",
+                           title, tid, icon, pic);
+        sceIoWrite(out, line, len);
+        added++;
+    }
+    if (out >= 0) sceIoClose(out);
+    list_free(&l);
+    free(shelf);
+    free(store);
+    return added;
+}
+
+/* Box art from Wikipedia for PS Vita games whose picture cannot be read
+ * (red Vita, 2026-10-01: the system never unpacked 23 games' icons, and
+ * retail art in ux0:app is encrypted). Rewrites vita.tsv's cover column for
+ * each one it finds; a ".nocover" file marks a game Wikipedia had nothing
+ * for. One lookup every 2 s (Wikipedia rate-limits bursts); an error ends
+ * the pass, which runs again at the next start.
+ * Returns how many rows got a cover. Background thread, network up. */
+int library_wiki_art(void) {
+    char path[128];
+    snprintf(path, sizeof(path), "%sgames/vita.tsv", ROOT);
+    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (fd < 0) return 0;
+    int size = (int)sceIoLseek(fd, 0, SCE_SEEK_END);
+    sceIoLseek(fd, 0, SCE_SEEK_SET);
+    char *in = size > 0 && size < 4 * 1024 * 1024 ? malloc(size + 1) : NULL;
+    int n = in ? sceIoRead(fd, in, size) : 0;
+    sceIoClose(fd);
+    if (!in) return 0;
+    in[n > 0 ? n : 0] = 0;
+    char *out = malloc(size + 64 * 1024);
+    if (!out) { free(in); return 0; }
+    int o = 0, fixed = 0, looked = 0, stop = 0;
+    char media[96];
+    snprintf(media, sizeof(media), "%smedia/vita", ROOT);
+    sceIoMkdir(media, 0777);
+    for (char *line = in; *line;) {
+        char *end = strchr(line, '\n');
+        int len = end ? (int)(end - line) : (int)strlen(line);
+        char row[2048];
+        int keep = 1;
+        if (len < (int)sizeof(row) - 1) {
+            memcpy(row, line, len);
+            row[len] = 0;
+            char *f[12] = {0};
+            int nf = 0;
+            for (char *c = row; nf < 12; ) { f[nf++] = c; c = strchr(c, '\t'); if (!c) break; *c++ = 0; }
+            SceIoStat st;
+            if (nf >= 6 && !strcmp(f[1], "app") && strlen(f[2]) == 9 && (!f[4][0] || sceIoGetstat(f[4], &st) < 0)) {
+                char base[160], got[192] = "", none[176], lower[10];
+                for (int i = 0; i < 9; ++i) lower[i] = (char)tolower((unsigned char)f[2][i]);
+                lower[9] = 0;
+                snprintf(base, sizeof(base), "%s/%s-w", media, lower);
+                snprintf(none, sizeof(none), "%s.nocover", base);
+                char jpg[176], png[176];
+                snprintf(jpg, sizeof(jpg), "%s.jpg", base);
+                snprintf(png, sizeof(png), "%s.png", base);
+                if (sceIoGetstat(jpg, &st) >= 0) snprintf(got, sizeof(got), "%s", jpg);
+                else if (sceIoGetstat(png, &st) >= 0) snprintf(got, sizeof(got), "%s", png);
+                else if (sceIoGetstat(none, &st) < 0 && !stop) {
+                    if (looked++) sceKernelDelayThread(2 * 1000 * 1000);
+                    int r = gamedesc_cover(f[0], base, got, sizeof(got));
+                    if (r < 0) { got[0] = 0; stop = 1; }
+                    else if (r == 0) { got[0] = 0; SceUID m = sceIoOpen(none, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666); if (m >= 0) sceIoClose(m); }
+                }
+                if (got[0]) {                              /* the row again, with the new cover */
+                    keep = 0;
+                    fixed++;
+                    for (int i = 0; i < nf; ++i)
+                        o += snprintf(out + o, size + 64 * 1024 - o, "%s%s", i ? "\t" : "", i == 4 ? got : f[i]);
+                    if (end) out[o++] = '\n';
+                }
+            }
+        }
+        if (keep) { memcpy(out + o, line, len + (end ? 1 : 0)); o += len + (end ? 1 : 0); }
+        line = end ? end + 1 : line + len;
+    }
+    if (fixed) {
+        SceUID w = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+        if (w >= 0) { sceIoWrite(w, out, o); sceIoClose(w); }
+    }
+    free(in);
+    free(out);
+    return fixed;
+}
 
 int library_is_ours(void) {
     char head[16] = {0};

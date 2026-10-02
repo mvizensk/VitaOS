@@ -14,7 +14,7 @@
 #define MAXQ 40
 #define MAXHITS 24
 
-static int active, pending, fade, dirty;      /* dirty: frames since the last key, results not yet redone */
+static int active, pending, fade, dirty, store_only;   /* store_only: opened from the Store's Search */      /* dirty: frames since the last key, results not yet redone */
 static char q[MAXQ + 1];
 static Hit hits[MAXHITS];
 static int nhits, more_games;
@@ -30,11 +30,14 @@ static const char *const rows[4] = {"1234567890", "qwertyuiop", "asdfghjkl'", "z
 enum { K_SPACE, K_BACK, K_CLEAR, K_DONE };     /* the fifth row */
 static const char *const special[4] = {"space", "\xE2\x8C\xAB", "clear", "results"};
 
-#define KX 40
-#define KY 176
-#define KW 44
-#define KH 52
-#define KG 5
+/* Full width (2026-10-01: half the screen was too small to tap); the results
+ * get the whole screen of their own when asked for. */
+#define KX 53
+#define KY 160
+#define KW 80
+#define KH 54
+#define KG 6
+#define RY 110                                 /* the first result row */
 
 static const struct { const char *name, *where; } settings_words[] = {
     {"Brightness", "Settings \xC2\xB7 Display & sound"}, {"Volume", "Settings \xC2\xB7 Display & sound"},
@@ -77,13 +80,19 @@ static void refresh(void) {
     nhits = more_games = nsugg = 0;
     rsel = 0; rtop = 0;
     if (!*q) return;
-    static Hit g[200], a[8], f[8], m[8], st[4];
+    if (store_only) {
+        nhits = store_find(q, hits, MAXHITS);
+        for (int i = 0; i < nhits && nsugg < 4; ++i) snprintf(suggestions[nsugg++], sizeof(suggestions[0]), "%s", hits[i].title);
+        return;
+    }
+    static Hit g[200], a[8], f[8], m[8], st[4], sh[4];
     int ng = play_find(q, g, 200), na = apps_find(q, a, 4), nf = movies_find(q, f, 4), nm = music_find(q, m, 4), ns = 0;
+    int nsh = store_find(q, sh, 3);
     for (unsigned int i = 0; i < sizeof(settings_words) / sizeof(settings_words[0]) && ns < 3; ++i) {
         int sc = match_score(settings_words[i].name, q);
         if (sc) st[ns++] = (Hit){H_SETTING, (int)i, 0, sc, settings_words[i].name, settings_words[i].where, NULL, "", 0};
     }
-    int cap = na + nf + nm + ns ? 4 : 8;              /* leave room for films, music, apps */
+    int cap = na + nf + nm + ns + nsh ? 4 : 8;              /* leave room for films, music, apps */
     int shown = ng < cap ? ng : cap;
     more_games = ng > shown ? ng : 0;
     for (int sc = 3; sc >= 1; --sc) {
@@ -93,6 +102,7 @@ static void refresh(void) {
         k = 0; for (int i = 0; i < nf; ++i) if (f[i].score == sc) tmp[k++] = f[i]; add(tmp, k);
         k = 0; for (int i = 0; i < nm; ++i) if (m[i].score == sc) tmp[k++] = m[i]; add(tmp, k);
         k = 0; for (int i = 0; i < na; ++i) if (a[i].score == sc) tmp[k++] = a[i]; add(tmp, k);
+        k = 0; for (int i = 0; i < nsh; ++i) if (sh[i].score == sc) tmp[k++] = sh[i]; add(tmp, k);
         k = 0; for (int i = 0; i < ns; ++i) if (st[i].score == sc) tmp[k++] = st[i]; add(tmp, k);
     }
     for (int i = 0; i < nhits && nsugg < 4; ++i) {
@@ -102,7 +112,23 @@ static void refresh(void) {
     }
 }
 
-void search_open(void) { if (!active) pending = 1; }
+void search_open(void) {
+    if (active) return;
+    if (store_only) q[0] = 0;                  /* the Store's query stays in the Store */
+    pending = 1; store_only = 0;
+}
+/* Closing without opening a hit: a Store search leaves its results in the Store. */
+static int leave(void) {
+    active = 0;
+    if (!store_only) return -1;
+    store_set_query(q);
+    return SEARCH_TO_STORE;
+}
+void search_open_store(const char *start) {
+    if (active) return;
+    pending = 1; store_only = 1;
+    snprintf(q, sizeof(q), "%s", start ? start : "");
+}
 int search_active(void) { return active || pending; }
 void search_close(void) { active = pending = 0; }
 
@@ -135,6 +161,7 @@ static int open_hit(int i) {
     switch (h->kind) {
     case H_GAME: play_open_hit(h); return SEARCH_TO_PLAY;
     case H_APP: apps_open_hit(h); return -1;
+    case H_STORE: store_open_hit(h, q); return SEARCH_TO_STORE;
     case H_FILM: movies_open_hit(h); return SEARCH_TO_MOVIES;
     case H_ALBUM: music_open_hit(h); return SEARCH_TO_MUSIC;
     default: return SEARCH_TO_SETTINGS;
@@ -143,8 +170,8 @@ static int open_hit(int i) {
 
 static void key_rect(int r, int c, int *x, int *y, int *w) {
     *y = KY + r * (KH + KG);
-    if (r < 4) { *x = KX + c * (KW + KG) + (r == 2 ? 12 : r == 3 ? 24 : 0); *w = KW; return; }
-    static const int x5[4] = {0, 205, 290, 375}, w5[4] = {200, 80, 80, 110};   /* space, delete, clear, results */
+    if (r < 4) { *x = KX + c * (KW + KG) + (r == 2 ? 16 : r == 3 ? 32 : 0); *w = KW; return; }
+    static const int x5[4] = {0, 386, 532, 678}, w5[4] = {380, 140, 140, 176};   /* space, delete, clear, results */
     *x = KX + x5[c];
     *w = w5[c];
 }
@@ -157,11 +184,11 @@ int search_update(const Input *in) {
 
     /* ---- input ---- */
     unsigned int p = in->pressed;
-    if (p & SCE_CTRL_SELECT) { active = 0; free_art(); return -1; }
+    if (p & SCE_CTRL_SELECT) { free_art(); return leave(); }
     if (p & SCE_CTRL_CIRCLE) {
         if (zone == Z_RESULTS || zone == Z_CHIPS) zone = Z_KEYS;
         else if (*q) { q[strlen(q) - 1] = 0; dirty = 1; }    /* O on the keys: delete, like a phone */
-        else { active = 0; return -1; }
+        else return leave();
     }
     if (p & SCE_CTRL_SQUARE) type_key(4, K_BACK);
     if (p & SCE_CTRL_TRIANGLE) type_key(4, K_SPACE);
@@ -196,27 +223,32 @@ int search_update(const Input *in) {
     }
     if (in->tapped) {
         int tx = in->tap_x, ty = in->tap_y;
-        for (int r = 0; r < 5; ++r)
-            for (int c = 0; c < (r < 4 ? 10 : 4); ++c) {
-                int x, y, w;
-                key_rect(r, c, &x, &y, &w);
-                if (tx >= x && tx < x + w && ty >= y && ty < y + KH) { zone = Z_KEYS; kr = r; kc = c; type_key(r, c); sfx_play(SFX_MOVE); }
+        if (zone == Z_RESULTS) {
+            if (ty >= RY) {
+                int i = (int)(rtop + (ty - RY) / 52.0f);
+                if (i >= 0 && i < total) return open_hit(i);
             }
-        if (ty > 150 && tx > 540) {
-            int i = (int)(rtop + (ty - 160) / 48.0f);
-            if (i >= 0 && i < total) return open_hit(i);
+        } else {
+            for (int r = 0; r < 5; ++r)
+                for (int c = 0; c < (r < 4 ? 10 : 4); ++c) {
+                    int x, y, w;
+                    key_rect(r, c, &x, &y, &w);
+                    if (tx >= x && tx < x + w && ty >= y && ty < y + KH) { zone = Z_KEYS; kr = r; kc = c; type_key(r, c); sfx_play(SFX_MOVE); }
+                }
+            if (total && tx >= W - 230 && ty > 100 && ty < 144) { zone = Z_RESULTS; rsel = 0; }   /* the "N results" pill */
         }
         int cx = 40;
-        for (int i = 0; i < nsugg; ++i) {
+        for (int i = 0; i < nsugg && zone != Z_RESULTS; ++i) {
             int w = text_w(font, 15, suggestions[i]) + 28;
             if (w > 220) w = 220;
+            if (cx + w > W - 250) break;
             if (tx >= cx && tx < cx + w && ty > 104 && ty < 140) {
                 snprintf(q, sizeof(q), "%.*s", MAXQ, suggestions[i]);
                 refresh();
             }
             cx += w + 10;
         }
-        if (ty < 90 && tx > W - 120) { active = 0; return -1; }   /* "Close" */
+        if (ty < 90 && tx > W - 120) return leave();   /* "Close" */
     }
 
     /* ---- drawing ---- */
@@ -233,63 +265,73 @@ int search_update(const Input *in) {
         if (cw > W - 240) cw = W - 240;
         if ((int)(ui_pulse() * 2)) vita2d_draw_rectangle(62 + cw, 44, 2, 30, acc);   /* caret */
     } else {
-        text(font, 60, 70, C_FAINT, 22, "Search games, films, music, apps and settings");
+        text(font, 60, 70, C_FAINT, 22, store_only ? "Search the Store" : "Search games, films, music, apps and settings");
     }
     text(font, W - 118, 66, C_DIM, 16, "SELECT close");
 
     int cx = 40;
-    for (int i = 0; i < nsugg; ++i) {                          /* suggestion chips */
+    for (int i = 0; i < nsugg && zone != Z_RESULTS; ++i) {     /* suggestion chips */
         int w = text_w(font, 15, suggestions[i]) + 28;
         if (w > 220) w = 220;
+        if (cx + w > W - 250) break;                           /* the results pill sits at the end */
         int on = zone == Z_CHIPS && chip == i;
         vita2d_draw_rectangle(cx, 106, w, 32, on ? acc : RGBA8(40, 45, 60, 220));
         text_fit(font, cx + 14, 128, on ? RGBA8(10, 12, 18, 255) : C_TEXT, 15, suggestions[i], w - 28);
         cx += w + 10;
     }
 
-    for (int r = 0; r < 5; ++r)                                /* the keyboard */
-        for (int c = 0; c < (r < 4 ? 10 : 4); ++c) {
-            int x, y, w;
-            key_rect(r, c, &x, &y, &w);
-            int on = zone == Z_KEYS && kr == r && kc == c;
-            if (on) draw_focus(x, y, w, KH, 1);
-            vita2d_draw_rectangle(x, y, w, KH, on ? RGBA8(52, 58, 78, 255) : RGBA8(32, 36, 48, 230));
-            char label[4] = {0};
-            const char *s = r < 4 ? (label[0] = rows[r][c], label) : special[c];
-            int size = r < 4 ? 22 : 15;
-            int lw = text_w(r < 4 ? bold : font, size, s);
-            text(r < 4 ? bold : font, x + (w - lw) / 2, y + KH / 2 + size / 3, on ? C_TEXT : C_DIM, size, s);
-        }
-    draw_hints(KX, KY + 5 * (KH + KG) + 14, "X type  [] delete  /\\ space  START results  O back", C_FAINT, W);
+    if (zone != Z_RESULTS) {
+        if (total) {                                           /* the way to the results: a pill, START, or right */
+            char pill[48];
+            snprintf(pill, sizeof(pill), "%d%s result%s  \xE2\x86\x92", nhits, more_games ? "+" : "", total == 1 ? "" : "s");
+            draw_round_rect(W - 230, 106, 190, 32, 16, acc);
+            text_fit(bold, W - 214, 128, RGBA8(10, 12, 18, 255), 15, pill, 160);
+        } else if (*q && !dirty) text_right(font, W - 40, 128, C_DIM, 15, "Nothing matches that yet");
+        for (int r = 0; r < 5; ++r)                            /* the keyboard */
+            for (int c = 0; c < (r < 4 ? 10 : 4); ++c) {
+                int x, y, w;
+                key_rect(r, c, &x, &y, &w);
+                int on = zone == Z_KEYS && kr == r && kc == c;
+                if (on) draw_focus(x, y, w, KH, 1);
+                vita2d_draw_rectangle(x, y, w, KH, on ? RGBA8(52, 58, 78, 255) : RGBA8(32, 36, 48, 230));
+                char label[4] = {0};
+                const char *s = r < 4 ? (label[0] = rows[r][c], label) : special[c];
+                int size = r < 4 ? 24 : 16;
+                int lw = text_w(r < 4 ? bold : font, size, s);
+                text(r < 4 ? bold : font, x + (w - lw) / 2, y + KH / 2 + size / 3, on ? C_TEXT : C_DIM, size, s);
+            }
+        draw_hints(KX, KY + 5 * (KH + KG) + 14, "X type  [] delete  /\\ space  START results  O back", C_FAINT, W);
+        return -1;
+    }
 
-    /* results */
-    int rx = 548, ry = 160;
-    if (!*q) text(font, rx, ry + 24, C_FAINT, 17, "Start typing: results appear here.");
-    else if (!total) text(font, rx, ry + 24, C_DIM, 17, "Nothing matches that yet.");
+    /* results: the whole screen under the field */
+    int rx = 60;
+    if (!total) text(font, rx, RY + 24, C_DIM, 17, "Nothing matches that yet.");
     load_one_art((int)rtop, (int)rtop + 7);
     float target = rsel > rtop + 6 ? rsel - 6 : rsel < rtop ? rsel : rtop;
     rtop += (target - rtop) * 0.3f;
-    static const char *const kinds[] = {"GAME", "APP", "FILM", "MUSIC", "SETTING"};
+    static const char *const kinds[] = {"GAME", "APP", "FILM", "MUSIC", "SETTING", "STORE"};
     for (int i = 0; i < total; ++i) {
-        float y = ry + (i - rtop) * 48;
-        if (y < ry - 4 || y > H - 60) continue;
-        int on = zone == Z_RESULTS && rsel == i;
-        if (on) vita2d_draw_rectangle(rx - 8, y, W - rx - 24, 44, RGBA8(52, 58, 78, 240));
-        if (on) vita2d_draw_rectangle(rx - 8, y, 3, 44, acc);
+        float y = RY + (i - rtop) * 52;
+        if (y < RY - 4 || y > H - 70) continue;
+        int on = rsel == i;
+        if (on) vita2d_draw_rectangle(rx - 12, y, W - 2 * rx + 24, 48, RGBA8(52, 58, 78, 240));
+        if (on) vita2d_draw_rectangle(rx - 12, y, 3, 48, acc);
         if (i == nhits) {
             char all[64];
             snprintf(all, sizeof(all), "See all %d games in Play", more_games);
-            text(bold, rx + 48, y + 28, acc, 16, all);
+            text(bold, rx + 52, y + 30, acc, 17, all);
             continue;
         }
         Hit *h = &hits[i];
         if (h->art) {
-            float tw = vita2d_texture_get_width(h->art), th = vita2d_texture_get_height(h->art), sc = 36 / (tw > th ? tw : th);
-            vita2d_draw_texture_scale(h->art, rx + (36 - tw * sc) / 2, y + 4 + (36 - th * sc) / 2, sc, sc);
-        } else vita2d_draw_rectangle(rx, y + 4, 36, 36, RGBA8(40, 45, 60, 255));
-        text_fit(on ? bold : font, rx + 48, y + 20, C_TEXT, 16, h->title, W - rx - 150);
-        text_fit(font, rx + 48, y + 38, C_FAINT, 13, h->sub, W - rx - 150);
-        text_right(font, W - 40, y + 26, C_FAINT, 12, kinds[h->kind]);
+            float tw = vita2d_texture_get_width(h->art), th = vita2d_texture_get_height(h->art), sc = 40 / (tw > th ? tw : th);
+            vita2d_draw_texture_scale(h->art, rx + (40 - tw * sc) / 2, y + 4 + (40 - th * sc) / 2, sc, sc);
+        } else vita2d_draw_rectangle(rx, y + 4, 40, 40, RGBA8(40, 45, 60, 255));
+        text_fit(on ? bold : font, rx + 54, y + 22, C_TEXT, 17, h->title, W - rx - 220);
+        text_fit(font, rx + 54, y + 41, C_FAINT, 13, h->sub, W - rx - 220);
+        text_right(font, W - rx, y + 30, C_FAINT, 12, kinds[h->kind]);
     }
+    draw_hints(rx, H - 26, "X open  \xE2\x86\x91 \xE2\x86\x93 choose  O keyboard", C_FAINT, W);
     return -1;
 }

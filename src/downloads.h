@@ -16,6 +16,7 @@ void downloads_update(const Input *in);
 int downloads_busy(void);
 int downloads_progress(float *frac);   /* files left while the worker runs, else 0 */
 const char *downloads_hint(void);
+void downloads_show_store(void);      /* back to the Store page (a search hit opened there) */
 void downloads_term(void);
 
 #endif

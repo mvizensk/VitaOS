@@ -96,11 +96,27 @@ static void apply_order(void) {                       /* scan thread */
     if (fresh) save_order();
 }
 
+/* Play's PS Vita shelf, as one string: Apps leaves out what Play already
+ * lists as a game (2026-10-01: "this is for things that are applications
+ * not games"). Each row carries "\t<TITLEID>\t". NULL when there is none. */
+static char *vita_shelf(void) {
+    SceUID fd = sceIoOpen("ux0:data/arcadehub/games/vita.tsv", SCE_O_RDONLY, 0);
+    if (fd < 0) return NULL;
+    int size = (int)sceIoLseek(fd, 0, SCE_SEEK_END);
+    sceIoLseek(fd, 0, SCE_SEEK_SET);
+    char *b = size > 0 && size < 4 * 1024 * 1024 ? malloc(size + 1) : NULL;
+    int n = b ? sceIoRead(fd, b, size) : 0;
+    sceIoClose(fd);
+    if (b) b[n > 0 ? n : 0] = 0;
+    return b;
+}
+
 static void scan(void) {
     STAGE("apps: scan");
     napps = 0;
     SceUID d = sceIoDopen("ux0:app");
     if (d < 0) return;
+    char *games = vita_shelf();
     SceIoDirent e;
     while (napps < MAX_APPS) {
         memset(&e, 0, sizeof(e));
@@ -115,9 +131,16 @@ static void scan(void) {
         if (!a->title[0]) continue;                 /* a leftover folder, not an app */
         /* Home is this app; showing it here would only offer to close itself. */
         if (!strcmp(a->tid, "MVZA00010")) continue;
+        /* VitaOS's own helpers: the Updater runs only from Settings > Update,
+         * the pause menu only from the PS button */
+        if (!strcmp(a->tid, "VTOSUPDTR") || !strcmp(a->tid, "VTOSPAUSE")) continue;
+        char key[16];
+        snprintf(key, sizeof(key), "\t%s\t", a->tid);
+        if (games && strstr(games, key)) continue;   /* a game: it lives in Play */
         ++napps;
     }
     sceIoDclose(d);
+    free(games);
     qsort(apps, napps, sizeof(App), by_title);
     apply_order();
     loaded = 1;

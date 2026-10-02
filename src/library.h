@@ -9,6 +9,8 @@ int library_scan(volatile int *found);
 
 /* 1: the catalog on the card was written by library_scan; 0: Mac-built; -1: none. */
 int library_is_ours(void);
+int library_topup_vita(void);
+int library_wiki_art(void);     /* Wikipedia box art for Vita games with no readable picture; blocking, network */   /* Mac-built catalog: append retail Vita games it lacks; returns how many */
 int library_scan_into(const char *root, volatile int *found);   /* testing: root like "ux0:data/vitaos-test/" */
 
 /* Box art for games that have none, from libretro's thumbnail server (what

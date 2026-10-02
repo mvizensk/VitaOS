@@ -24,7 +24,7 @@
 #include <psp2/rtc.h>
 #include <psp2/power.h>
 
-enum { K_GAME, K_MOVIE, K_MUSIC, K_NEWS, K_WEEK };
+enum { K_GAME, K_MOVIE, K_MUSIC, K_NEWS, K_WEEK, K_UPD };
 typedef struct {
     int kind, index;
     const char *title, *kicker, *meta1, *meta2, *meta3;
@@ -255,6 +255,24 @@ static void add_week(void) {
     items[nitems++] = (Item){K_WEEK, 0, "Your week", "THIS WEEK", "", "", "", NULL, NULL, RGBA8(139, 92, 246, 255), 0};
 }
 
+/* Store updates: one tile when installed apps are behind the catalogue
+ * (2026-10-01), and X updates them all. It stays while they install. */
+static char upd_title[48], upd_meta[64];
+static void add_updates(void) {
+    if (nitems >= MAX_ITEMS) return;
+    int of = 0; float f = 0;
+    int doing = store_update_progress(&of, &f), n = store_updates_count();
+    if (!doing && n <= 0) return;
+    if (doing) {
+        snprintf(upd_title, sizeof(upd_title), "Updating %d of %d", doing, of);
+        snprintf(upd_meta, sizeof(upd_meta), "%d%%", (int)(f * 100));
+    } else {
+        snprintf(upd_title, sizeof(upd_title), "%d app update%s", n, n == 1 ? "" : "s");
+        snprintf(upd_meta, sizeof(upd_meta), "Press X to update %s", n == 1 ? "it" : "them all");
+    }
+    items[nitems++] = (Item){K_UPD, 0, upd_title, "STORE", upd_meta, "", "", NULL, NULL, RGBA8(56, 189, 248, 255), 0};
+}
+
 /* The Your week card's big area: hours this week, the top games as bars
  * (longest first, scaled to the leader), and the day streak. */
 static void week_big(void) {
@@ -266,16 +284,18 @@ static void week_big(void) {
     else snprintf(big, sizeof(big), "%.1f h", secs / 3600.0);
     text(bold, 48, 172, C_TEXT, 48, big);
     text(font, 48, 196, C_DIM, 16, "played this week");
-    int y = 228;
-    long best = ntop ? top[0].seconds : 1;
-    for (int k = 0; k < ntop; ++k) {
-        text_fit(font, 48, y + 14, C_TEXT, 14, top[k].title, 220);
-        draw_bar(48, y + 20, 220, 6, best ? (float)top[k].seconds / best : 0, RGBA8(139, 92, 246, 255));
-        y += 32;
-    }
     char sline[48];
     snprintf(sline, sizeof(sline), "%d day%s streak", streak, streak == 1 ? "" : "s");
-    text(font, 48, y + 12, C_DIM, 16, sline);
+    text(font, 48, 222, C_DIM, 16, sline);
+    /* The top games in a column of their own, beside the hours: stacked
+     * under them, three games ran into the tile row (red Vita, 2026-10-01). */
+    int y = 128;
+    long best = ntop ? top[0].seconds : 1;
+    for (int k = 0; k < ntop && y + 30 < ROW_Y - 8; ++k) {
+        text_fit(font, 290, y + 14, C_TEXT, 14, top[k].title, 300);
+        draw_bar(290, y + 20, 300, 6, best ? (float)top[k].seconds / best : 0, RGBA8(139, 92, 246, 255));
+        y += 34;
+    }
 }
 
 /* Where the news sits is decided once, when it first arrives: moving it the
@@ -298,7 +318,7 @@ static int nshown;
  * one tile each whatever they show: the music tile is titled by the album
  * playing, so keying it by title moved it to the end on every new album. */
 static void item_key(const Item *it, char *out) {
-    if (it->kind == K_MOVIE || it->kind == K_MUSIC || it->kind == K_WEEK) snprintf(out, KEY_LEN, "%d", it->kind);
+    if (it->kind == K_MOVIE || it->kind == K_MUSIC || it->kind == K_WEEK || it->kind == K_UPD) snprintf(out, KEY_LEN, "%d", it->kind);
     else snprintf(out, KEY_LEN, "%d|%s", it->kind, it->title ? it->title : "");
 }
 
@@ -354,6 +374,7 @@ static void gather(void) {
         }
     }
     add_week();
+    add_updates();
     keep_order();
 }
 
@@ -382,6 +403,7 @@ const char *hometab_hint(void) {
     case K_MUSIC: return "X play / pause   <- -> choose   L R tabs";
     case K_NEWS: return "X read   <- -> choose   L R tabs";
     case K_WEEK: return "<- -> choose   L R tabs";
+    case K_UPD: return "X update all   <- -> choose   L R tabs";
     default: return "X play   <- -> choose   L R tabs";
     }
 }
@@ -495,6 +517,9 @@ act: {
             if (n) { reading = it->index; read_scroll = 0; }
         } else if (it->kind == K_MUSIC) {
             music_resume();
+        } else if (it->kind == K_UPD) {
+            int of; float f;
+            if (!store_update_progress(&of, &f) && store_update_all() > 0) ui_toast("Updating apps in the background", C_ACCENT);
         }   /* K_WEEK: nothing to act on, just a card */
     }
 draw:
@@ -552,6 +577,14 @@ draw:
             char wbig[16];
             snprintf(wbig, sizeof(wbig), wsecs < 3600 ? "%ldm" : "%ldh", wsecs < 3600 ? wsecs / 60 : wsecs / 3600);
             text(bold, (int)tx + 12, (int)(ty + size * 0.42f), RGBA8(255, 255, 255, 255), 28, wbig);
+        } else if (t->kind == K_UPD) {                          /* a sky-blue card with the count */
+            draw_round_gradient(tx, ty, size, size, rr, RGBA8(56, 189, 248, 255), RGBA8(29, 78, 216, 255));
+            int of = 0; float f = 0;
+            int doing = store_update_progress(&of, &f);
+            char big[16];
+            snprintf(big, sizeof(big), "%d", doing ? of - doing + 1 : store_updates_count());
+            text(bold, (int)tx + 12, (int)(ty + size * 0.42f), RGBA8(255, 255, 255, 255), 28, big);
+            if (doing) draw_bar((int)tx + 12, (int)(ty + size * 0.52f), (int)size - 24, 4, f, RGBA8(255, 255, 255, 230));
         } else if (t->tile) draw_round_cover(t->tile, tx, ty, size, rr, RGBA8(255, 255, 255, i == sel ? 255 : 200));
         else {
             draw_round_rect(tx, ty, size, size, rr, RGBA8(34, 40, 56, 255));
@@ -564,10 +597,11 @@ draw:
             draw_round_texture(t->art, tx + size - sw - 6, ty + size - sh - 6, sw, sh, 5, RGBA8(255, 255, 255, 255));
         }
         if (t->kind != K_GAME) {                               /* a small badge: film, music, news or week */
-            const char *label = t->kind == K_MOVIE ? "FILM" : t->kind == K_NEWS ? "NEWS" : t->kind == K_WEEK ? "WEEK" : "MUSIC";
+            const char *label = t->kind == K_MOVIE ? "FILM" : t->kind == K_NEWS ? "NEWS" : t->kind == K_WEEK ? "WEEK"
+                              : t->kind == K_UPD ? "STORE" : "MUSIC";
             unsigned int col = t->kind == K_MOVIE ? C_ACCENT : t->kind == K_NEWS ? RGBA8(255, 120, 70, 255)
-                              : t->kind == K_WEEK ? RGBA8(196, 164, 255, 255) : C_OK;
-            draw_round_rect(tx + 8, ty + size - 30, 58, 22, 11, RGBA8(21, 24, 33, 210));   /* a pill, inside the corner */
+                              : t->kind == K_WEEK ? RGBA8(196, 164, 255, 255) : t->kind == K_UPD ? RGBA8(125, 211, 252, 255) : C_OK;
+            draw_round_rect(tx + 8, ty + size - 30, text_w(bold, 12, label) + 18, 22, 11, RGBA8(21, 24, 33, 210));   /* a pill, inside the corner */
             text(bold, (int)tx + 17, (int)(ty + size - 14), col, 12, label);
         }
         if (i == sel) text_fit(bold, (int)tx, (int)(ROW_Y + TILE + 34), C_TEXT, 16, t->title, 300);

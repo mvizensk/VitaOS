@@ -1,0 +1,380 @@
+# VitaOS pt: English<TAB>translation (home/tools/lang_tables.py writes this file)
+Home	Início
+Play	Jogar
+Movies	Filmes
+Music	Música
+Apps	Apps
+Files	Arquivos
+Store	Loja
+Settings	Ajustes
+open	abrir
+back	voltar
+select	selecionar
+choose	escolher
+tabs	abas
+L R tabs	L R abas
+section	seção
+sections	seções
+adjust	ajustar
+move	mover
+put it here	colocar aqui
+hold X move	segure X mover
+options	opções
+refresh	atualizar
+view	ver
+delete	apagar
+close	fechar
+shutter	disparar
+flip	virar
+effect	efeito
+photos	fotos
+camera	câmera
+start	iniciar
+start all	iniciar tudo
+add URL	adicionar URL
+reload	recarregar
+store (or cancel)	loja (ou cancelar)
+stop	parar
+mark	marcar
+actions	ações
+pane	painel
+devices	dispositivos
+see it in the Store	ver na Loja
+scroll	rolar
+resume	continuar
+play / pause	tocar / pausar
+read	ler
+update all	atualizar tudo
+play	jogar
+record	gravar
+play/stop	tocar/parar
+pause	pausar
+play/pause	tocar/pausar
+previous/next	anterior/próxima
+like	curtir
+shuffle	aleatório
+UP sections	CIMA seções
+now playing	tocando agora
+space	espaço
+clear	limpar
+results	resultados
+type	digitar
+keyboard	teclado
+SELECT close	SELECT fechar
+clean up	limpar
+measure again	medir de novo
+reinstall	reinstalar
+update	atualizar
+install	instalar
+back to the apps	voltar aos apps
+details	detalhes
+new search	nova busca
+search	buscar
+rows	fileiras
+sort: newest	ordem: recentes
+sort: popular	ordem: populares
+X open	X abrir
+About this app	Sobre este app
+Delete this app	Apagar este app
+Delete app	Apagar app
+Deleting…	Apagando…
+Moved	Movido
+Refreshing apps	Atualizando apps
+Loading your apps…	Carregando seus apps…
+Battery health	Saúde da bateria
+Good	Boa
+Worn	Desgastada
+Replace soon	Troque em breve
+of its capacity when new	da capacidade de nova
+The battery does not report its health.	A bateria não informa sua saúde.
+Holds when full	Carga máxima
+Holds now	Carga atual
+Charge cycles	Ciclos de carga
+Now	Agora
+Time per charge	Tempo por carga
+Still measuring. Use the Vita on battery	Ainda medindo. Use o Vita na bateria
+for a couple of hours, games included.	por umas horas, jogos incluídos.
+Replacement part: SP86R (PCH-2000).	Peça de reposição: SP86R (PCH-2000).
+Replacement part: SP65M (PCH-1000).	Peça de reposição: SP65M (PCH-1000).
+Listings of 3800 mAh or more in the stock size	Anúncios de 3800 mAh ou mais no tamanho original
+rarely hold that; a good one matches a new battery.	raramente cumprem; uma boa iguala uma nova.
+Could not save the photo	Não foi possível salvar a foto
+Camera closed to save power	Câmera fechada para poupar bateria
+Starting camera…	Iniciando câmera…
+Delete photo	Apagar foto
+Photo deleted	Foto apagada
+No screenshots in this album yet.	Ainda não há capturas neste álbum.
+No photos yet. Press START to open the camera.	Ainda não há fotos. Aperte START para abrir a câmera.
+Looking for photos…	Procurando fotos…
+No screenshots yet. PS + START on any game saves one.	Ainda não há capturas. PS + START em um jogo salva uma.
+A download failed: see Downloads	Um download falhou: veja Downloads
+Nothing queued	Nada na fila
+Downloading	Baixando
+Stop the running job	Parar a tarefa
+Keep going	Continuar
+Copy to other pane	Copiar para o outro painel
+Move to other pane	Mover para o outro painel
+Delete	Apagar
+Rename	Renomear
+New folder	Nova pasta
+Properties	Propriedades
+Copying	Copiando
+Moving	Movendo
+Deleting	Apagando
+Hashing	Calculando hash
+Some items failed	Alguns itens falharam
+Pick a folder	Escolha uma pasta
+Copy	Copiar
+Move	Mover
+Protected	Protegido
+Rename failed	Falha ao renomear
+New folder failed	Falha ao criar a pasta
+Pick a file, not a folder.	Escolha um arquivo, não uma pasta.
+A job is running	Uma tarefa está em andamento
+Stop	Parar
+Actions	Ações
+Devices	Dispositivos
+Loading…	Carregando…
+Empty folder	Pasta vazia
+No devices	Nenhum dispositivo
+Sunday	Domingo
+Monday	Segunda
+Tuesday	Terça
+Wednesday	Quarta
+Thursday	Quinta
+Friday	Sexta
+Saturday	Sábado
+Jan	jan
+Feb	fev
+Mar	mar
+Apr	abr
+May	mai
+Jun	jun
+Jul	jul
+Aug	ago
+Sep	set
+Oct	out
+Nov	nov
+Dec	dez
+THIS WEEK	ESTA SEMANA
+played this week	jogado esta semana
+COMMUNITY NEWS	NOTÍCIAS DA COMUNIDADE
+See it in the Store	Ver na Loja
+Welcome back	Bem-vindo de volta
+Play a game, a film or an album and it shows up here.	Jogue, assista a um filme ou ouça um álbum e ele aparece aqui.
+Could not start	Não foi possível iniciar
+The game would not launch.	O jogo não iniciou.
+Updating apps in the background	Atualizando apps em segundo plano
+JUMP BACK IN	CONTINUE
+RECENTLY PLAYED	JOGADO RECENTEMENTE
+QUICK RESUME	RETOMADA RÁPIDA
+Your week	Sua semana
+STORE	LOJA
+WEEK	SEMANA
+FILM	FILME
+NEWS	NOTÍCIAS
+MUSIC	MÚSICA
+Settings would not open	Ajustes não abriu
+Devices > Bluetooth Devices. PS comes back here.	Dispositivos > Dispositivos Bluetooth. PS volta aqui.
+Find games again	Procurar jogos de novo
+Already looking for games	Já procurando jogos
+Looking for games…	Procurando jogos…
+Download box art	Baixar capas
+Already downloading box art	Já baixando capas
+Downloading box art in the background	Baixando capas em segundo plano
+This Vita uses a library built on a computer, so VitaOS leaves it as it is.	Este Vita usa uma biblioteca criada no computador; o VitaOS a mantém como está.
+This Vita uses a library built on a computer, which has its own art.	Este Vita usa uma biblioteca criada no computador, com suas próprias capas.
+An agent is working on this Vita	Um agente está trabalhando neste Vita
+Display & sound	Tela e som
+Battery & power	Bateria e energia
+Network	Rede
+Storage	Armazenamento
+About this Vita	Sobre este Vita
+Memory card	Cartão de memória
+System	Sistema
+Internal	Interna
+Sleep	Repouso
+Restart	Reiniciar
+Power off	Desligar
+Weather	Clima
+Weather off	Clima desligado
+Change town	Trocar cidade
+Turn the weather off	Desligar o clima
+Could not reach the weather service. Check Wi-Fi and try again.	Não foi possível acessar o clima. Verifique o Wi-Fi.
+No town by that name. Try the nearest city.	Nenhuma cidade com esse nome. Tente a mais próxima.
+Which one?	Qual?
+Town or city	Cidade
+Wallpaper set	Papel de parede aplicado
+Theme	Tema
+Accent colour	Cor de destaque
+Accent: match the art	Destaque: igual à arte
+Accent set	Destaque aplicado
+Background	Fundo
+Background set	Fundo aplicado
+Match the art	Igual à arte
+Blue	Azul
+Purple	Roxo
+Pink	Rosa
+Orange	Laranja
+Green	Verde
+Teal	Turquesa
+Plain	Liso
+Midnight	Meia-noite
+Wallpaper	Papel de parede
+Brightness	Brilho
+Volume	Volume
+UI sounds	Sons da interface
+Home music	Música do Início
+Large text	Texto grande
+Language	Idioma
+Automatic	Automático
+Battery	Bateria
+Time left	Tempo restante
+System home	Início do sistema
+Signal	Sinal
+Address	Endereço
+Agents	Agentes
+Wi-Fi networks	Redes Wi-Fi
+Bluetooth devices	Dispositivos Bluetooth
+Manage storage	Gerenciar armazenamento
+Update	Atualizar
+Start at boot	Abrir ao ligar
+Hide the bubbles	Ocultar as bolhas
+Movies tab	Aba Filmes
+Music tab	Aba Música
+Not connected	Sem conexão
+Remote listening	Escutando remoto
+Off	Desligado
+On external power	Na tomada
+Estimating	Calculando
+Put the Vita to sleep? Wi-Fi goes off too, so agents cannot reach it until you wake it with the power button.	Colocar o Vita em repouso? O Wi-Fi também desliga até você acordá-lo com o botão liga/desliga.
+Restart the Vita now? Anything unsaved in a suspended game is lost.	Reiniciar o Vita agora? O que não foi salvo em um jogo suspenso será perdido.
+Turn the Vita off? Hold the power button to turn it back on.	Desligar o Vita? Segure o botão liga/desliga para ligá-lo de novo.
+VitaOS will not open at power-on	O VitaOS não abrirá ao ligar
+VitaOS opens at power-on (needs the PS plugin)	O VitaOS abre ao ligar (precisa do plugin PS)
+Movies tab hidden	Aba Filmes oculta
+Movies tab shown	Aba Filmes visível
+Music tab hidden	Aba Música oculta
+Music tab shown	Aba Música visível
+The bubbles are back	As bolhas voltaram
+Bubbles hidden (needs the PS plugin 1.4)	Bolhas ocultas (precisa do plugin PS 1.4)
+Could not save the setting	Não foi possível salvar o ajuste
+About VitaOS	Sobre o VitaOS
+Time per charge, and what a new battery would give	Tempo por carga e o que uma bateria nova daria
+PS opens the system's bubbles for 30 s	PS abre as bolhas do sistema por 30 s
+The town on Home's weather widget	A cidade do widget de clima
+Biggest folders, and clean up crash dumps and logs	Maiores pastas e limpeza de dumps e logs
+Press X (or START anywhere in Settings)	Aperte X (ou START em qualquer lugar de Ajustes)
+Open VitaOS at power-on (needs the PS plugin)	Abrir o VitaOS ao ligar (precisa do plugin PS)
+VitaOS comes back when a game ends or the bubbles sit idle	O VitaOS volta quando um jogo termina ou as bolhas ficam paradas
+Look through the card for new games	Procura jogos novos no cartão
+For games that have none yet	Para jogos que ainda não têm
+Licence, credits and source	Licença, créditos e código
+Join or switch networks in the system's Wi-Fi page; PS comes back	Entre ou troque de rede na página Wi-Fi do sistema; PS volta
+Pairing opens the system Settings; PS comes back here	O pareamento abre os Ajustes do sistema; PS volta aqui
+Clean up	Limpar
+Cleaned up	Limpo
+Biggest folders	Maiores pastas
+Crash dumps, RetroArch logs and temp,	Dumps de erro, logs e temporários do RetroArch,
+half-finished downloads.	downloads incompletos.
+Nothing to clean up.	Nada para limpar.
+For you	Para você
+Top charts	Mais populares
+Updates	Atualizações
+Games	Jogos
+Ports	Ports
+Utilities	Utilitários
+Emulators	Emuladores
+Popular right now	Populares agora
+Ports of PC and console games	Ports de jogos de PC e console
+Handy utilities	Utilitários práticos
+Homebrew games	Jogos homebrew
+New and updated	Novos e atualizados
+Update all	Atualizar tudo
+Not installing this one	Este não será instalado
+Not a VPK	Não é um VPK
+Blocked on this Vita	Bloqueado neste Vita
+Installed: it is first in Apps	Instalado: é o primeiro em Apps
+Installed	Instalado
+Install	Instalar
+Also needs	Também precisa
+Data files: not installed automatically	Arquivos de dados: não são instalados automaticamente
+Loading screenshots	Carregando capturas
+No screenshots yet	Ainda não há capturas
+FEATURED	DESTAQUE
+downloads	downloads
+Refreshing the store	Atualizando a loja
+Newest first	Mais recentes primeiro
+Most popular first	Mais populares primeiro
+The store could not be reached. [] tries again.	Não foi possível acessar a loja. [] tenta de novo.
+Loading the store…	Carregando a loja…
+Everything is up to date	Tudo está atualizado
+Game	Jogo
+Port	Port
+Utility	Utilitário
+Emulator	Emulador
+App	App
+Installing…	Instalando…
+Search the Store	Buscar na Loja
+Search games, films, music, apps and settings	Busque jogos, filmes, música, apps e ajustes
+Nothing matches that yet	Nada corresponde ainda
+Nothing matches that yet.	Nada corresponde ainda.
+Start typing: results appear here.	Comece a digitar: os resultados aparecem aqui.
+GAME	JOGO
+APP	APP
+SETTING	AJUSTE
+Memo saved	Nota salva
+Delete memo	Apagar nota
+Memo deleted	Nota apagada
+Voice Memos	Notas de voz
+Recording	Gravando
+New recording	Nova gravação
+Camera	Câmera
+Photos	Fotos
+Cannot play	Não é possível reproduzir
+The player would not open this file.	O player não abriu este arquivo.
+This film will not play	Este filme não pode ser reproduzido
+PAUSED	PAUSADO
+Loading your films…	Carregando seus filmes…
+No movies yet	Ainda não há filmes
+Removed from Liked songs	Removida das Curtidas
+Added to Liked songs	Adicionada às Curtidas
+This song would not play	Esta música não tocou
+Shuffle on	Aleatório ligado
+Shuffle off	Aleatório desligado
+Delete song	Apagar música
+Could not update the library	Não foi possível atualizar a biblioteca
+Song deleted	Música apagada
+Repeat off	Repetir desligado
+Repeat all	Repetir tudo
+Repeat one	Repetir uma
+UP NEXT	A SEGUIR
+Back to the start	De volta ao início
+The end of the list	Fim da lista
+Loading your music…	Carregando sua música…
+No music yet	Ainda não há música
+Songs you like show up here, newest first.	As músicas que você curte aparecem aqui, as mais recentes primeiro.
+Singles	Singles
+That file would not play	Esse arquivo não tocou
+Adrenaline opens: pick the game there	O Adrenaline abre: escolha o jogo lá
+Favourite ★	Favorito ★
+Add to favourites	Adicionar aos favoritos
+From Wikipedia (CC BY-SA)	Da Wikipédia (CC BY-SA)
+Save states	Estados salvos
+More like this	Mais como este
+Remove from the menu	Remover do menu
+Remove and delete the file from the Vita	Remover e apagar o arquivo do Vita
+Remove and uninstall it from the Vita	Remover e desinstalar do Vita
+(no file to delete)	(nenhum arquivo para apagar)
+Cancel	Cancelar
+Clear	Céu limpo
+Partly cloudy	Parcialmente nublado
+Cloudy	Nublado
+Fog	Neblina
+Drizzle	Garoa
+Heavy rain	Chuva forte
+Rain	Chuva
+Snow	Neve
+Showers	Pancadas de chuva
+Snow showers	Pancadas de neve
+Thunderstorms	Tempestades

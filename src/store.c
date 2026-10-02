@@ -19,6 +19,7 @@
 #include <psp2/promoterutil.h>
 
 #include "store.h"
+#include "search.h"
 #include "apps.h"
 #include "sfx.h"
 #include "store_headbin.h"
@@ -43,10 +44,10 @@ static int napps, view[MAX_APPS], nview;
 static char *blob;
 /* The front page is "For you" (rows, like the Play Store), then Top charts,
  * then one grid per VitaDB type. */
-enum { C_FORYOU, C_TOP, C_UPDATES, NCATS = 7 };
+enum { C_FORYOU, C_TOP, C_UPDATES, C_SEARCH = 7, NCATS = 8 };
 static int cat;
-static const char *const cat_names[] = {"For you", "Top charts", "Updates", "Games", "Ports", "Utilities", "Emulators"};
-static const char *const cat_types[] = {NULL, NULL, NULL, "1", "2", "4", "5"};
+static const char *const cat_names[] = {"For you", "Top charts", "Updates", "Games", "Ports", "Utilities", "Emulators", ""};      /* Search is drawn as a magnifying glass */
+static const char *const cat_types[] = {NULL, NULL, NULL, "1", "2", "4", "5", NULL};
 static int sel, detail, chips, cur;                  /* cur: the app on the detail page (index into apps) */
 static float top;
 static int grow_sel = -1;
@@ -109,6 +110,9 @@ static int by_popular(const void *a, const void *b) {
     return x < y ? 1 : x > y ? -1 : by_date(a, b);
 }
 static int sort_new;                  /* 0 popular (default), 1 newest */
+static void draw_magnifier(float cx, float cy, unsigned int c);
+static void check_inst(App *a);
+static volatile int updates_n = -1, queue[64], queue_n, queue_i;   /* update all: indices into apps */
 static int has_update(App *a);        /* defined below, by the install/SFO code; filter() wants it for Updates */
 
 /* For you: a featured banner, then rows of the most popular in each kind,
@@ -143,8 +147,45 @@ static void build_rows(void) {
     rrow = 0; vscroll = 0;
 }
 
+/* Search (2026-10-01, "search for applications on the store"): every word of
+ * the query somewhere in the name, author or description; name hits first. */
+static char query[64];
+static int query_asked;
+static int ci_has(const char *hay, const char *word, int n) {
+    for (; *hay; ++hay)
+        if (!strncasecmp(hay, word, n)) return 1;
+    return 0;
+}
+static int search_score(const App *a, const char *query) {
+    int words = 0, in_name = 0;
+    for (const char *w = query; *w;) {
+        while (*w == ' ') ++w;
+        int n = 0;
+        while (w[n] && w[n] != ' ') ++n;
+        if (!n) break;
+        ++words;
+        if (ci_has(a->name, w, n)) ++in_name;
+        else if (!ci_has(a->author, w, n) && !ci_has(a->description, w, n) && !ci_has(a->long_description, w, n)) return 0;
+        w += n;
+    }
+    if (!words) return 0;
+    return !strncasecmp(a->name, query, strlen(query)) ? 4 : in_name == words ? 3 : in_name ? 2 : 1;
+}
+static int score[MAX_APPS];
+static int by_score(const void *a, const void *b) {
+    int x = score[*(const int *)a], y = score[*(const int *)b];
+    return x != y ? y - x : by_popular(a, b);
+}
+
 static void filter(void) {
     nview = 0;
+    if (cat == C_SEARCH) {
+        for (int i = 0; i < napps; ++i)
+            if ((score[i] = query[0] ? search_score(&apps[i], query) : 0)) view[nview++] = i;
+        qsort(view, nview, sizeof(int), by_score);
+        sel = 0; top = 0;
+        return;
+    }
     for (int i = 0; i < napps; ++i) {
         if (cat == C_UPDATES) { inst_budget = 1; if (has_update(&apps[i])) view[nview++] = i; continue; }   /* opening Updates checks them all */
         if (!cat_types[cat] || !strcmp(apps[i].type, cat_types[cat])) view[nview++] = i;
@@ -206,12 +247,17 @@ static int load_catalog(void) {                       /* worker thread */
     spare_blob = b;
     nspare = parse(b, spare);
     if (!nspare) { free(b); spare_blob = NULL; return -1; }
+    /* Which installed apps are behind the catalogue, here on the worker, so
+     * Home can say "3 app updates" without opening the Store (2026-10-01). */
+    int up = 0;
+    for (int i = 0; i < nspare; ++i) { check_inst(&spare[i]); up += spare[i].inst == 3; }
+    updates_n = up;
     spare_ready = 1;
     return 0;
 }
 
 static void swap_in(void) {                           /* main thread, never mid-install */
-    if (!spare_ready || installing >= 0) return;
+    if (!spare_ready || installing >= 0 || queue_i < queue_n) return;
     free(blob);
     blob = spare_blob;
     memcpy(apps, spare, nspare * sizeof(App));
@@ -622,7 +668,14 @@ static int worker(SceSize args, void *argp) {
     if (load_catalog() >= 0) catalog_state = 2;       /* the saved list first: the store opens at once */
     want_catalog = 1;                                  /* then a fresh one */
     for (;;) {
-        if (installing >= 0) { install(&apps[installing]); installing = -1; }
+        if (installing < 0 && queue_i < queue_n) installing = queue[queue_i++];   /* update all, one by one */
+        if (installing >= 0) {
+            App *a = &apps[installing];
+            install(a);
+            if (job_stage == 4) { a->inst = 2; if (updates_n > 0) updates_n--; }
+            installing = -1;
+            if (queue_i < queue_n) continue;
+        }
         if (want_catalog) {
             want_catalog = 0;
             if (catalog_state != 2) catalog_state = 1;
@@ -716,16 +769,17 @@ static const char *type_name(const App *a) {
 /* inst: 0 not checked, 1 not installed, 2 installed and current, 3 installed
  * but behind the catalogue. The APP_VER read only happens for apps that are
  * actually on the Vita, and only once (cached here like the install check). */
+static void check_inst(App *a) {
+    char dir[48], p[64], ver[16];
+    SceIoStat st;
+    snprintf(dir, sizeof(dir), "ux0:app/%s", a->titleid);
+    snprintf(p, sizeof(p), "%s/eboot.bin", dir);
+    if (!a->titleid[0] || sceIoGetstat(p, &st) < 0) a->inst = 1;
+    else a->inst = sfo_app_ver(dir, ver) >= 0 && version_older(ver, a->version) ? 3 : 2;
+}
+
 static int is_installed(App *a) {
-    if (!a->inst && inst_budget > 0) {
-        --inst_budget;
-        char dir[48], p[64], ver[16];
-        SceIoStat st;
-        snprintf(dir, sizeof(dir), "ux0:app/%s", a->titleid);
-        snprintf(p, sizeof(p), "%s/eboot.bin", dir);
-        if (!a->titleid[0] || sceIoGetstat(p, &st) < 0) a->inst = 1;
-        else a->inst = sfo_app_ver(dir, ver) >= 0 && version_older(ver, a->version) ? 3 : 2;
-    }
+    if (!a->inst && inst_budget > 0) { --inst_budget; check_inst(a); }
     return a->inst >= 2;
 }
 
@@ -735,10 +789,35 @@ static int has_update(App *a) { is_installed(a); return a->inst == 3; }
  * catalogue. Cheap once the catalogue and inst cache are warm (an int
  * compare per app); the first pass over an unchecked app still costs an
  * sceIoGetstat and, if installed, an SFO read. */
-int store_updates_count(void) {
-    int n = 0;
-    for (int i = 0; i < napps; ++i) if (has_update(&apps[i])) ++n;
+int store_updates_count(void) { return updates_n; }
+
+/* Home's "N app updates" tile: X asks once, then the worker installs them in turn. */
+int store_update_all(void) {
+    if (updates_n <= 0 || installing >= 0 || queue_i < queue_n) return 0;
+    char names[220] = "";
+    int n = 0, len = 0;
+    for (int i = 0; i < napps && n < 64; ++i) {
+        if (apps[i].inst != 3 || denied(&apps[i])) continue;
+        int is_vpk = strlen(apps[i].url) > 4 && !strcasecmp(apps[i].url + strlen(apps[i].url) - 4, ".vpk");
+        if (!is_vpk) continue;
+        queue[n++] = i;
+        if (len < 160) len += snprintf(names + len, sizeof(names) - len, "%s%s", len ? ", " : "", apps[i].name);
+    }
+    if (!n) return 0;
+    char msg[320];
+    snprintf(msg, sizeof(msg), "Update %d app%s: %s%s?", n, n == 1 ? "" : "s", names, len >= 160 ? "..." : "");
+    if (!ui_confirm("Update all", msg)) return 0;
+    queue_n = n; queue_i = 0;
+    kick();
     return n;
+}
+
+/* While an update-all runs: which one (1-based) of how many; 0 when idle. */
+int store_update_progress(int *of, float *frac) {
+    if (queue_n == 0 || (queue_i >= queue_n && installing < 0)) { if (queue_n) queue_n = queue_i = 0; return 0; }
+    *of = queue_n;
+    *frac = job_frac;
+    return queue_i;
 }
 
 static void draw_icon(App *a, float x, float y, float s) {
@@ -776,6 +855,8 @@ void store_leave(void) { if (installing < 0) { detail = 0; job_stage = 0; } chip
 const char *store_hint(void) {
     if (detail) return installing >= 0 ? "Installing\xE2\x80\xA6" : has_update(&apps[cur]) ? "X update    O back" : "X install    O back";
     if (chips) return "\xE2\x86\x90 \xE2\x86\x92  section    X back to the apps    L R tabs";
+    if (cat == C_SEARCH) return nview ? "X details    /\\ new search    [] refresh    O downloads    L R tabs"
+                                      : "X search    [] refresh    O downloads    L R tabs";
     if (cat == C_FORYOU) return "X details    \xE2\x86\x91 \xE2\x86\x93 rows    [] refresh    O downloads    L R tabs";
     if (cat == C_TOP) return "X details    [] refresh    O downloads    L R tabs";
     return sort_new ? "X details    /\\ sort: newest    [] refresh    O downloads    L R tabs"
@@ -1043,7 +1124,7 @@ int store_update(const Input *in) {
 
     if (p & SCE_CTRL_SQUARE) { want_catalog = 1; kick(); ui_toast("Refreshing the store", C_ACCENT); }
     if (catalog_state == 3 && (p & SCE_CTRL_SQUARE)) catalog_state = 1;
-    if (p & SCE_CTRL_TRIANGLE && cat >= 2) { sort_new = !sort_new; filter(); ui_toast(sort_new ? "Newest first" : "Most popular first", C_ACCENT); }
+    if (p & SCE_CTRL_TRIANGLE && cat >= 2 && cat != C_SEARCH) { sort_new = !sort_new; filter(); ui_toast(sort_new ? "Newest first" : "Most popular first", C_ACCENT); }
     if (p & SCE_CTRL_CIRCLE) return 0;                              /* to the downloads list */
     if (!napps) {
         text(font, 40, 150, C_DIM, 18, catalog_state == 3 ? "The store could not be reached. [] tries again." : "Loading the store\xE2\x80\xA6");
@@ -1060,32 +1141,46 @@ int store_update(const Input *in) {
     Input in2 = *in;
     int chx = 40;
     for (int c = 0; c < NCATS; ++c) {                              /* chip taps first */
-        int w = text_w(font, 15, cat_names[c]) + 30;
-        if (in->tapped && in->tap_x >= chx && in->tap_x < chx + w && in->tap_y >= 70 && in->tap_y < 114) { cat = c; filter(); chips = 0; in2.tapped = 0; }
+        int w = c == C_SEARCH ? 44 : text_w(font, 15, cat_names[c]) + 30;
+        if (in->tapped && in->tap_x >= chx - 4 && in->tap_x < chx + w + 6 && in->tap_y >= 66 && in->tap_y < 120) { cat = c; filter(); chips = 0; in2.tapped = 0; }
         chx += w + 10;
     }
-    if (in2.tapped && in2.tap_y < 116) in2.tapped = 0;
+    if (in2.tapped && in2.tap_y < 120) in2.tapped = 0;
+    if (cat != C_SEARCH) query_asked = 0;
+    else if (!chips && ((!query_asked && !query[0]) || (p & SCE_CTRL_TRIANGLE) || (!nview && ((p & SCE_CTRL_CROSS) || in2.tapped)))) {
+        query_asked = 1;                     /* VitaOS's own keyboard once on arrival, then on request */
+        search_open_store(query);            /* (Sony's dialog sent him to Home, 2026-10-01) */
+        p = 0; in2.tapped = 0;
+    }
     if (cat == C_FORYOU) {
         ui_theme_default();
         for_you(&in2, p);
     } else if (cat == C_UPDATES && !nview) {
         text(font, 40, 150, C_DIM, 18, "Everything is up to date");
+    } else if (cat == C_SEARCH && !nview) {
+        char m[120];
+        if (query[0]) snprintf(m, sizeof(m), "Nothing in the store matches \"%s\". X searches again.", query);
+        else snprintf(m, sizeof(m), "Press X (or tap here) to search the store.");
+        text(font, 40, 150, C_DIM, 18, m);
     } else {
-        if (cat == C_TOP || cat == C_UPDATES) top_charts(&in2, p); else category_grid(&in2, p);
+        if (cat == C_TOP || cat == C_UPDATES || cat == C_SEARCH) top_charts(&in2, p); else category_grid(&in2, p);
         ui_theme_from(sel < nview ? icon_of(&apps[view[sel]]) : NULL);
     }
     /* the chips last, on a band of background, so rows scrolled up pass under them */
     draw_gradient(0, 65, W, 52, C_BG, C_BG, C_BG, (C_BG & 0x00FFFFFF) | 0xE0000000);
     int cx = 40;
     for (int c = 0; c < NCATS; ++c) {
-        int w = text_w(font, 15, cat_names[c]) + 30;
+        int w = c == C_SEARCH ? 44 : text_w(font, 15, cat_names[c]) + 30;
         if (chips && c == cat) draw_focus(cx, 78, w, 30, 1);
+        unsigned int ink = c == cat ? RGBA8(15, 15, 20, 255) : C_TEXT;
         draw_round_rect(cx, 78, w, 30, 15, c == cat ? RGBA8(245, 245, 250, 255) : RGBA8(255, 255, 255, 26));
-        text(font, cx + 15, 99, c == cat ? RGBA8(15, 15, 20, 255) : C_TEXT, 15, cat_names[c]);
+        if (c == C_SEARCH) draw_magnifier(cx + 19, 90, ink);
+        else text(font, cx + 15, 99, ink, 15, cat_names[c]);
         cx += w + 10;
     }
-    char count[32];
-    snprintf(count, sizeof(count), "%d apps", napps);
+    char count[96];
+    if (cat == C_SEARCH && query[0]) snprintf(count, sizeof(count), "%d for \"%.16s\"", nview, query);
+    else snprintf(count, sizeof(count), "%d apps", napps);
     text_right(font, W - 40, 99, C_FAINT, 14, count);
     return 1;
 }
@@ -1139,6 +1234,53 @@ static int store_match_uncached(const char *headline) {
         if (strstr(h, k)) { best = i; best_len = len; }
     }
     return best;
+}
+
+/* A magnifying glass: a ring and a short handle down to the right. */
+static void draw_magnifier(float cx, float cy, unsigned int c) {
+    draw_round_ring(cx - 7, cy - 7, 14, 14, 7, 2, c);
+    for (int k = -1; k <= 1; ++k)
+        vita2d_draw_line(cx + 5 + k * 0.7f, cy + 5 - k * 0.7f, cx + 10 + k * 0.7f, cy + 10 - k * 0.7f, c);
+}
+
+/* Global search (SELECT) and the Store's own search: the store's apps as hits. */
+int store_find(const char *q, Hit *out, int max) {
+    static char subs[32][40];
+    static int idx[MAX_APPS];
+    if (!q || !*q) return 0;
+    int n = 0;
+    for (int i = 0; i < napps; ++i) {
+        int sc = match_score(apps[i].name, q);
+        if (!sc && search_score(&apps[i], q)) sc = 1;
+        if ((score[i] = sc)) idx[n++] = i;
+    }
+    qsort(idx, n, sizeof(int), by_score);
+    if (n > max) n = max;
+    if (n > 32) n = 32;
+    for (int k = 0; k < n; ++k) {
+        App *a = &apps[idx[k]];
+        snprintf(subs[k], sizeof(subs[k]), "Store \xC2\xB7 %s", type_name(a));
+        out[k] = (Hit){H_STORE, idx[k], 0, score[idx[k]], a->name, subs[k], NULL, "", 0};
+        if (a->icon_state == 2) snprintf(out[k].path, sizeof(out[k].path), DIR "/icons/%s", a->icon);
+    }
+    return n;
+}
+
+/* A store hit opened: the Store's Search section holds the query, the app's page is open. */
+void store_open_hit(const Hit *h, const char *q) {
+    if (h->a < 0 || h->a >= napps) return;
+    snprintf(query, sizeof(query), "%s", q);
+    cat = C_SEARCH; query_asked = 1; chips = 0;
+    filter();
+    for (int k = 0; k < nview; ++k) if (view[k] == h->a) sel = k;
+    if (installing < 0) open_detail(h->a);
+}
+
+/* The keyboard closed on the Store's search without opening a hit: show the query's results. */
+void store_set_query(const char *q) {
+    snprintf(query, sizeof(query), "%s", q);
+    cat = C_SEARCH; query_asked = 1; chips = 0;
+    filter();
 }
 
 void store_show(int app) {

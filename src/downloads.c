@@ -291,6 +291,7 @@ int downloads_progress(float *frac) {
 }
 
 static int in_store = 1;                 /* the store is the front page; O goes to the queue */
+void downloads_show_store(void) { in_store = 1; }
 
 const char *downloads_hint(void) {
     if (in_store) return store_hint();
