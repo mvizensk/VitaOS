@@ -18,5 +18,6 @@ int store_update_progress(int *of, float *frac);   /* during update all: which o
 int store_prepare_pkg(const char *vpk, const char *pkg, char tid[10]);   /* unzip + head.bin; <0 on failure */
 float store_job_frac(void);              /* progress of the download running now, 0..1 */
 int store_install_dir(const char *pkg);  /* promote a prepared folder; the promoter's result */
+int store_missing_for(const char *tid, char *msg, int max);   /* what an app still needs on the card (0 = nothing known missing) */
 
 #endif

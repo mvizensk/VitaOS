@@ -929,6 +929,79 @@ static vita2d_texture *shot_of(App *a, int k) {
     return ui_image(path);
 }
 
+/* "Ready to play" (2026-10-02). The catalogue writes what an app needs one
+ * line each, "- <what> in <where>": "Game Data Files: PC Steam in
+ * ux0:data/Mania", "kubridge.skprx in ur0:tai". A file name is looked for in
+ * that folder; game files mean the folder exists and is not empty. 1 found,
+ * 0 missing, -1 nothing to check (no path, or the app's own folder). */
+static int req_line(const char *line, const char *tid, char *where, int wmax) {
+    const char *in = NULL;
+    for (const char *p = line; (p = strstr(p, " in ")) != NULL; ++p) in = p;
+    if (!in) return -1;
+    const char *path = in + 4;
+    while (*path == ' ') ++path;
+    if (strncmp(path, "ux0:", 4) && strncmp(path, "ur0:", 4) && strncmp(path, "uma0:", 5) && strncmp(path, "imc0:", 5)) return -1;
+    int n = 0;
+    while (path[n] && path[n] != ' ' && path[n] != ',' && path[n] != '\n' && n < wmax - 1) { where[n] = path[n]; ++n; }
+    while (n && (where[n - 1] == '.' || where[n - 1] == '/')) --n;
+    where[n] = 0;
+    char own[24];
+    snprintf(own, sizeof(own), "ux0:app/%s", tid);
+    if (!strncmp(where, own, strlen(own))) return -1;   /* into its own folder: cannot tell from here */
+    const char *item = line;
+    while (*item == '-' || *item == ' ' || *item == '*') ++item;
+    char name[96];
+    int k = 0;
+    while (item + k < in && k < (int)sizeof(name) - 1) { name[k] = item[k]; ++k; }
+    name[k] = 0;
+    char probe[256];
+    SceIoStat st;
+    if (!strchr(name, ' ') && strchr(name, '.')) {      /* a file: "libshacccg.suprx" */
+        snprintf(probe, sizeof(probe), "%s/%s", where, name);
+        return sceIoGetstat(probe, &st) >= 0;
+    }
+    SceUID d = sceIoDopen(where);                       /* game files: a folder with something in it */
+    if (d < 0) return 0;
+    SceIoDirent e;
+    int any = 0;
+    while (!any) {
+        memset(&e, 0, sizeof(e));
+        if (sceIoDread(d, &e) <= 0) break;
+        any = e.d_name[0] != '.';
+    }
+    sceIoDclose(d);
+    return any;
+}
+
+/* How many of an app's checkable needs are missing; the first few, one a line, in msg. */
+static int req_missing(const App *a, char *msg, int max) {
+    int miss = 0, len = 0;
+    if (msg && max) msg[0] = 0;
+    for (const char *s = a->requirements; *s;) {
+        const char *e = strchr(s, '\n');
+        int n = e ? (int)(e - s) : (int)strlen(s);
+        char line[200], where[160];
+        snprintf(line, sizeof(line), "%.*s", n < 199 ? n : 199, s);
+        if (line[0] && req_line(line, a->titleid, where, sizeof(where)) == 0) {
+            miss++;
+            const char *t = line;
+            while (*t == '-' || *t == ' ') ++t;
+            if (msg && len < max - 4) len += snprintf(msg + len, max - len, "%s%s", len ? "\n" : "", t);
+        }
+        s = e ? e + 1 : s + n;
+    }
+    return miss;
+}
+
+/* For Play and Apps, before they launch something: what is still missing. */
+int store_missing_for(const char *tid, char *msg, int max) {
+    for (int i = 0; i < napps; ++i)
+        if (!strcmp(apps[i].titleid, tid)) return req_missing(&apps[i], msg, max);
+    for (int i = 0; i < nspare && spare_ready; ++i)
+        if (!strcmp(spare[i].titleid, tid)) return req_missing(&spare[i], msg, max);
+    return 0;
+}
+
 static void open_detail(int app) { cur = app; detail = 1; job_stage = 0; }
 
 void store_leave(void) { if (installing < 0) { detail = 0; job_stage = 0; } chips = 0; }
@@ -1017,15 +1090,38 @@ static int detail_page(const Input *in, unsigned int p) {
     y += 4 * 18 + 6;
     /* What else it needs, one line each (the catalogue writes them as "- x\n- y") */
     if (a->requirements[0] || a->data[0]) {
-        text(bold, 500, 344, C_MARK, 14, "Also needs");
-        int ny = 366, lines = 0;
+        static int checked_for = -1, verdict;            /* the card is read once per page, not per frame */
+        static signed char tick[8];
+        if (checked_for != cur) {
+            checked_for = cur;
+            int k = 0, miss = 0, known = 0;
+            for (const char *s = a->requirements; *s && k < 8;) {
+                const char *e = strchr(s, '\n');
+                int n = e ? (int)(e - s) : (int)strlen(s);
+                char line[200], where[160];
+                snprintf(line, sizeof(line), "%.*s", n < 199 ? n : 199, s);
+                if (line[0]) { tick[k] = (signed char)req_line(line, a->titleid, where, sizeof(where)); miss += tick[k] == 0; known += tick[k] >= 0; k++; }
+                s = e ? e + 1 : s + n;
+            }
+            verdict = !installed ? 0 : miss ? 2 : known ? 1 : 0;   /* 1 ready, 2 missing something */
+        }
+        if (verdict == 1) text(bold, 500, 344, C_OK, 14, "Ready to play");
+        else if (verdict == 2) text(bold, 500, 344, RGBA8(250, 180, 60, 255), 14, "Needs your files");
+        else text(bold, 500, 344, C_MARK, 14, "Also needs");
+        int ny = 366, lines = 0, k = 0;
         const char *s = a->requirements;
         while (*s && lines < 5) {
             const char *e = strchr(s, '\n');
             int n = e ? (int)(e - s) : (int)strlen(s);
             char line[160];
             snprintf(line, sizeof(line), "%.*s", n < 159 ? n : 159, s);
-            if (line[0]) { text_fit(font, 500, ny, C_TEXT, 13, line, 420); ny += 19; lines++; }
+            if (line[0]) {
+                int t = k < 8 ? tick[k] : -1;
+                unsigned int dot = t == 1 ? C_OK : t == 0 ? RGBA8(250, 180, 60, 255) : RGBA8(255, 255, 255, 60);
+                if (installed) draw_round_rect(500, ny - 9, 8, 8, 4, dot);       /* found, missing, or not checkable */
+                text_fit(font, installed ? 514 : 500, ny, C_TEXT, 13, line[0] == '-' ? line + 2 : line, 406);
+                ny += 19; lines++; k++;
+            }
             s = e ? e + 1 : s + n;
         }
         if (a->data[0] && lines < 6) text_fit(font, 500, ny, C_DIM, 13, "Data files: not installed automatically", 420);

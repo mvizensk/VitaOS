@@ -182,8 +182,10 @@ static vita2d_texture *icon(const char *tid) {
 /* ---------- launching ---------- */
 
 static void launch(const App *a) {
-    char msg[160];
-    snprintf(msg, sizeof(msg), "Open %s? Home closes while it runs and comes back when you quit it.", a->title);
+    char msg[400], need[300];
+    if (store_missing_for(a->tid, need, sizeof(need)) > 0)   /* a port without its game files would just crash */
+        snprintf(msg, sizeof(msg), "%s still needs:\n%s\nOpen it anyway?", a->title, need);
+    else snprintf(msg, sizeof(msg), "Open %s? Home closes while it runs and comes back when you quit it.", a->title);
     if (!ui_confirm(a->title, msg)) return;
     /* The agent bridge taps OK on the shell's "will close" dialog when it
      * sees this file, the same handshake Play uses. */

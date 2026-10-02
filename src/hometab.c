@@ -509,7 +509,8 @@ void hometab_update(const Input *in) {
 act: {
         Item *it = &items[sel];
         if (it->kind == K_GAME) {
-            if (play_recent_launch(it->index) < 0) ui_message("Could not start", "The game would not launch.");
+            int rc = play_recent_launch(it->index);
+            if (rc < 0 && rc != PLAY_CANCELLED) ui_message("Could not start", "The game would not launch.");
         } else if (it->kind == K_MOVIE) {
             want_tab = HOMETAB_TO_MOVIES;
             movies_open(it->index);

@@ -301,9 +301,18 @@ static int img_worker(SceSize args, void *argp) {
             const char *dot = strrchr(path, '.');
             SceIoStat st;
             vita2d_texture *t = NULL;
-            if (sceIoGetstat(path, &st) >= 0 && st.st_size > 0)
-                t = dot && (!strcasecmp(dot, ".jpg") || !strcasecmp(dot, ".jpeg")) ? vita2d_load_JPEG_file(path)
-                                                                                  : vita2d_load_PNG_file(path);
+            if (sceIoGetstat(path, &st) >= 0 && st.st_size > 0) {
+                /* By what the file is, not what it is called: the Store's
+                 * catalogue serves JPEGs named .png (2026-10-02: Cuphead's
+                 * screenshots never loaded). */
+                unsigned char magic[4] = {0};
+                SceUID mf = sceIoOpen(path, SCE_O_RDONLY, 0);
+                if (mf >= 0) { sceIoRead(mf, magic, 4); sceIoClose(mf); }
+                int jpeg = magic[0] == 0xFF && magic[1] == 0xD8;
+                int png = magic[0] == 0x89 && magic[1] == 'P';
+                if (!jpeg && !png) jpeg = dot && (!strcasecmp(dot, ".jpg") || !strcasecmp(dot, ".jpeg"));
+                t = jpeg ? vita2d_load_JPEG_file(path) : vita2d_load_PNG_file(path);
+            }
             if (t && round) round_corners(t, 0.22f);
             imgs[pick].tex = t;
             if (!t) { imgs[pick].tries++; imgs[pick].failed_at = sceKernelGetProcessTimeWide(); }

@@ -782,7 +782,14 @@ static int write_psp_boot(const char *path) {
 
 static int launch(const Game *g) {
     char uri[1024];
-    if (!strcmp(g->kind, "app")) snprintf(uri, sizeof(uri), "psgm:play?titleid=%s", g->a1);
+    if (!strcmp(g->kind, "app")) {
+        char need[300], msg[400];
+        if (store_missing_for(g->a1, need, sizeof(need)) > 0) {   /* a port without its game files would just crash */
+            snprintf(msg, sizeof(msg), "%s still needs:\n%s\nPlay it anyway?", g->title, need);
+            if (!ui_confirm(g->title, msg)) return PLAY_CANCELLED;
+        }
+        snprintf(uri, sizeof(uri), "psgm:play?titleid=%s", g->a1);
+    }
     else if (!strcmp(g->kind, "ra")) snprintf(uri, sizeof(uri), "psgm:play?titleid=RETROVITA&param=%s&param2=%s", g->a1, g->a2);
     else if (!strcmp(g->kind, "n64")) snprintf(uri, sizeof(uri), "psgm:play?titleid=DEDALOX64&param=%s", g->a1);
     else if (!strcmp(g->kind, "scumm")) snprintf(uri, sizeof(uri), "psgm:play?titleid=VSCU00001&path=%s&game_id=%s", g->a1, g->a2);

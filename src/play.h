@@ -1,6 +1,8 @@
 #ifndef HOME_PLAY_H
 #define HOME_PLAY_H
 
+#define PLAY_CANCELLED (-2)   /* launch declined by the player (missing files): not an error */
+
 #include "ui.h"
 
 void play_init(void);

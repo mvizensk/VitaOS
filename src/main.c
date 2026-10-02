@@ -38,6 +38,8 @@
 #include "files.h"
 #include "downloads.h"
 #include "battery.h"
+#include "crash.h"
+#include <psp2/apputil.h>
 #include "settings.h"
 #include "movies.h"
 #include "music.h"
@@ -553,6 +555,7 @@ static int watchdog(SceSize args, void *argp) {
     for (;;) {
         sceKernelDelayThread(300 * 1000);
         housekeeping();
+        crash_note_stage((const char *)ui_where, frame_no);   /* survives a crash: crash.c reports it next time */
         if (frame_no != seen) { seen = frame_no; stuck = 0; continue; }
         if (++stuck > 60) continue;                       /* 18 s of the same: stop repeating */
         char line[120];
@@ -608,7 +611,13 @@ int main(void) {
     ssl_threads_init();                      /* before any thread: OpenSSL 1.0.2 needs its locks (ssl_locks.c) */
     vita2d_init_advanced(4 * 1024 * 1024);   /* the per-frame vertex pool: the new visuals need more than 1 MB */
     vita2d_set_clear_color(C_BG);
+    {                                            /* safe memory (crash.c) and the system language (lang.c) need it */
+        SceAppUtilInitParam ip; SceAppUtilBootParam bp;
+        memset(&ip, 0, sizeof(ip)); memset(&bp, 0, sizeof(bp));
+        sceAppUtilInit(&ip, &bp);
+    }
     ui_init();
+    crash_init();                                /* the last run's stage, before this run writes its own */
     sfx_init();
     /* The splash and chime are for a cold boot only: Home also restarts every
      * time a game closes, and that should feel instant. */
@@ -761,6 +770,13 @@ int main(void) {
             else if (to == SEARCH_TO_SETTINGS) tab = T_SETTINGS;
             else if (to == SEARCH_TO_PLAY) tab = T_PLAY;
             else if (to == SEARCH_TO_STORE) { tab = T_DOWNLOADS; downloads_show_store(); }
+            ui_draw_toasts();
+            ui_end_frame();
+            continue;
+        }
+        if (crash_active()) {                    /* last run crashed: offer the report, once */
+            crash_update(&in);
+            draw_footer(crash_hint());
             ui_draw_toasts();
             ui_end_frame();
             continue;

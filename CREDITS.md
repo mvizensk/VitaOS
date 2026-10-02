@@ -7,6 +7,7 @@
   (`assets/LICENSE.txt`).
 - **Noto Sans JP**, by Google and Adobe, under the SIL Open Font License 1.1 (`assets/licenses/NotoSansJP-OFL.txt`), cut down to kana and common kanji for the Japanese translation.
 - **Store catalogue**: [VitaHomebrewDB](https://drdecki.github.io/VitaHomebrewDB/) and [CBPS-DB](https://github.com/KuromeSan/cbps-db), merged daily by `catalog/build.py`.
+- **QR Code generator**, by Project Nayuki, under the MIT License (`src/qrcodegen.c`), for crash-report codes.
 - **miniz**, by Rich Geldreich and contributors, under the MIT License
   (`third_party/miniz/LICENSE`).
 - **reAvPlayer** module, under the MIT License
