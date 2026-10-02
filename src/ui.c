@@ -1069,15 +1069,36 @@ static void header_icon_centers(int *wifi_cx, int *bt_cx, int *cy) {
     *cy = 30;
 }
 
+/* Tab names that fit before the status icons in every language (2026-10-02:
+ * Russian ran into the Wi-Fi icon and the clock): tighter gaps first, then a
+ * smaller size. Shared by drawing and by the tap test. */
+static void tab_fit(const char *const tabs[], int ntabs, int *gap, int *size) {
+    int wifi_cx, bt_cx, cy;
+    header_icon_centers(&wifi_cx, &bt_cx, &cy);
+    int avail = wifi_cx - 28 - TAB_X0;
+    *gap = TAB_GAP;
+    for (*size = TAB_SIZE; *size >= 14; --*size) {
+        int sum = 0;
+        for (int i = 0; i < ntabs; ++i) sum += text_w(bold, *size, tabs[i]);
+        if (ntabs < 2) return;
+        int g = (avail - sum) / (ntabs - 1);
+        if (g >= TAB_GAP) return;
+        if (g >= 12) { *gap = g; return; }
+    }
+    *size = 14;
+    *gap = 12;
+}
+
 void draw_header(const char *const tabs[], int ntabs, int active, const char *context) {
     vita2d_draw_rectangle(0, 0, W, 64, C_PANEL);
     vita2d_draw_rectangle(0, 64, W, 1, C_LINE);
-    int x = TAB_X0, ax = 0, aw = 0;
+    int x = TAB_X0, ax = 0, aw = 0, gap, size;
+    tab_fit(tabs, ntabs, &gap, &size);
     for (int i = 0; i < ntabs; ++i) {
-        int w = text_w(bold, TAB_SIZE, tabs[i]);
-        text(i == active ? bold : font, x, 41, i == active ? C_TEXT : C_DIM, TAB_SIZE, tabs[i]);
+        int w = text_w(bold, size, tabs[i]);
+        text(i == active ? bold : font, x, 41, i == active ? C_TEXT : C_DIM, size, tabs[i]);
         if (i == active) { ax = x; aw = w; }
-        x += w + TAB_GAP;
+        x += w + gap;
     }
     /* The underline glides to the new tab instead of jumping (critically
      * damped: fast, no overshoot), stretching a little while it travels. */
@@ -1119,11 +1140,12 @@ void draw_header(const char *const tabs[], int ntabs, int active, const char *co
 
 int header_tab_at(int x, int y, const char *const tabs[], int ntabs) {
     if (y > 64) return -1;
-    int left = TAB_X0;
+    int left = TAB_X0, gap, size;
+    tab_fit(tabs, ntabs, &gap, &size);
     for (int i = 0; i < ntabs; ++i) {
-        int w = text_w(bold, TAB_SIZE, tabs[i]);
-        if (x >= left - 12 && x <= left + w + 12) return i;
-        left += w + TAB_GAP;
+        int w = text_w(bold, size, tabs[i]);
+        if (x >= left - gap / 2 && x <= left + w + gap / 2) return i;
+        left += w + gap;
     }
     return -1;
 }

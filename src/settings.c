@@ -360,7 +360,7 @@ static void build_rows(void) {
         if (sfx_ambient_level()) snprintf(r->value, sizeof(r->value), "%d / 10", sfx_ambient_level());
         else snprintf(r->value, sizeof(r->value), "Off");
         r = add(R_ACTION, A_THEME, "Theme");
-        snprintf(r->value, sizeof(r->value), "%s accent, %s", ui_theme_accent_name(ui_theme_accent_index()), ui_theme_bg_name(ui_theme_bg()));
+        snprintf(r->value, sizeof(r->value), "%s, %s", tr(ui_theme_accent_name(ui_theme_accent_index())), tr(ui_theme_bg_name(ui_theme_bg())));
         r = add(R_TOGGLE, A_TEXTSIZE, "Large text");
         r->on = text_large();
         r = add(R_ACTION, A_LANG, "Language");
@@ -672,8 +672,11 @@ void settings_update(const Input *in) {
         if (on) draw_focus_r(bx, PB_Y, PB_S, PB_S, 1, 18);
         draw_round_rect(bx, PB_Y, PB_S, PB_S, 18, on ? RGBA8(255, 255, 255, 40) : RGBA8(255, 255, 255, 16));
         sys_icon(k + 1, bx + PB_S / 2, PB_Y + PB_S / 2, k == 2 ? (on ? RGBA8(255, 120, 120, 255) : RGBA8(230, 110, 110, 220)) : on ? C_TEXT : C_DIM);
-        int tw = text_w(font, 13, pnames[k]);
-        text(font, bx + PB_S / 2 - tw / 2, PB_Y + PB_S + 18, on ? C_TEXT : C_FAINT, 13, pnames[k]);
+        int ls = 13, room = PB_S + PB_GAP - 6;                     /* longer languages: a smaller label, never overlapping */
+        while (ls > 10 && text_w(font, ls, pnames[k]) > room) --ls;
+        int tw = text_w(font, ls, pnames[k]);
+        if (tw > room) tw = room;
+        text_fit(font, bx + PB_S / 2 - tw / 2, PB_Y + PB_S + 18, on ? C_TEXT : C_FAINT, ls, pnames[k], room);
     }
 
     /* ---- the rows ---- */

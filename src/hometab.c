@@ -21,6 +21,7 @@
 #include "news.h"
 #include "store.h"
 #include "playtime.h"
+#include "lang.h"
 #include <psp2/rtc.h>
 #include <psp2/power.h>
 
@@ -178,7 +179,7 @@ static void widgets(void) {
     snprintf(line, sizeof(line), "%d:%02d", t.hour % 12 ? t.hour % 12 : 12, t.minute);
     text(bold, x + 18, y + 50, C_TEXT, 40, line);
     text(font, x + 22 + text_w(bold, 40, line), y + 50, C_DIM, 16, t.hour < 12 ? "AM" : "PM");
-    snprintf(small, sizeof(small), "%s, %s %d", days[dow % 7], months[(t.month + 11) % 12], t.day);
+    snprintf(small, sizeof(small), "%s, %s %d", tr(days[dow % 7]), tr(months[(t.month + 11) % 12]), t.day);
     text(font, x + 20, y + 76, C_DIM, 15, small);
     int pct = scePowerGetBatteryLifePercent(), mins = scePowerGetBatteryLifeTime();
     if (scePowerIsBatteryCharging()) snprintf(small, sizeof(small), "%d%%  charging", pct);

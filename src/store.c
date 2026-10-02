@@ -1153,11 +1153,24 @@ int store_update(const Input *in) {
         p = 0;
     }
     Input in2 = *in;
+    /* Chips that fit in every language (Japanese ran over the count): tighter
+     * padding and gaps when needed, and no "N apps" when even that is full. */
+    char count[96];
+    if (cat == C_SEARCH && query[0]) snprintf(count, sizeof(count), "%d for \"%.16s\"", nview, query);
+    else snprintf(count, sizeof(count), "%d apps", napps);
+    int pad = 30, gap = 10, show_count = 1;
+    for (int pass = 0; pass < 3; ++pass) {
+        int total = 0;
+        for (int c = 0; c < NCATS; ++c) total += (c == C_SEARCH ? 44 : text_w(font, 15, cat_names[c]) + pad) + gap;
+        int room = W - 80 - (show_count ? text_w(font, 14, count) + 16 : 0);
+        if (total <= room) break;
+        if (pass == 0) { pad = 20; gap = 6; } else show_count = 0;
+    }
     int chx = 40;
     for (int c = 0; c < NCATS; ++c) {                              /* chip taps first */
-        int w = c == C_SEARCH ? 44 : text_w(font, 15, cat_names[c]) + 30;
+        int w = c == C_SEARCH ? 44 : text_w(font, 15, cat_names[c]) + pad;
         if (in->tapped && in->tap_x >= chx - 4 && in->tap_x < chx + w + 6 && in->tap_y >= 66 && in->tap_y < 120) { cat = c; filter(); chips = 0; in2.tapped = 0; }
-        chx += w + 10;
+        chx += w + gap;
     }
     if (in2.tapped && in2.tap_y < 120) in2.tapped = 0;
     if (cat != C_SEARCH) query_asked = 0;
@@ -1184,18 +1197,15 @@ int store_update(const Input *in) {
     draw_gradient(0, 65, W, 52, C_BG, C_BG, C_BG, (C_BG & 0x00FFFFFF) | 0xE0000000);
     int cx = 40;
     for (int c = 0; c < NCATS; ++c) {
-        int w = c == C_SEARCH ? 44 : text_w(font, 15, cat_names[c]) + 30;
+        int w = c == C_SEARCH ? 44 : text_w(font, 15, cat_names[c]) + pad;
         if (chips && c == cat) draw_focus(cx, 78, w, 30, 1);
         unsigned int ink = c == cat ? RGBA8(15, 15, 20, 255) : C_TEXT;
         draw_round_rect(cx, 78, w, 30, 15, c == cat ? RGBA8(245, 245, 250, 255) : RGBA8(255, 255, 255, 26));
         if (c == C_SEARCH) draw_magnifier(cx + 19, 90, ink);
-        else text(font, cx + 15, 99, ink, 15, cat_names[c]);
-        cx += w + 10;
+        else text(font, cx + pad / 2, 99, ink, 15, cat_names[c]);
+        cx += w + gap;
     }
-    char count[96];
-    if (cat == C_SEARCH && query[0]) snprintf(count, sizeof(count), "%d for \"%.16s\"", nview, query);
-    else snprintf(count, sizeof(count), "%d apps", napps);
-    text_right(font, W - 40, 99, C_FAINT, 14, count);
+    if (show_count) text_right(font, W - 40, 99, C_FAINT, 14, count);
     return 1;
 }
 
