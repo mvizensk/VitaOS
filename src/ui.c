@@ -854,6 +854,7 @@ void ui_init(void) {
     lang_init();                                     /* before anything is drawn */
     font = uifont_load("app0:assets/Inter-Regular.ttf");
     bold = uifont_load("app0:assets/Inter-Bold.ttf");
+    uifont_set_fallback(uifont_load("app0:assets/NotoSansJP-Subset.otf"));   /* kana and common kanji */
     ui_theme_load();
 }
 

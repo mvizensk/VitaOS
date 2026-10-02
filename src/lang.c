@@ -20,8 +20,9 @@
 #define TEXT_CFG "ux0:data/arcadehub/user/textsize.txt"
 #define SLOTS 2048                                   /* power of two, well above the table size */
 
-static const char *const codes[] = {"auto", "en", "es", "pt"};   /* French and German next */
-static const char *const names[] = {"Automatic", "English", "Espa\xC3\xB1ol", "Portugu\xC3\xAAs"};
+static const char *const codes[] = {"auto", "en", "es", "pt", "fr", "de", "it", "ja", "ru"};
+static const char *const names[] = {"Automatic", "English", "Espa\xC3\xB1ol", "Portugu\xC3\xAAs", "Fran\xC3\xA7" "ais", "Deutsch", "Italiano",
+                                    "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E", "\xD0\xA0\xD1\x83\xD1\x81\xD1\x81\xD0\xBA\xD0\xB8\xD0\xB9"};
 #define NCODES (int)(sizeof(codes) / sizeof(codes[0]))
 
 static int choice, active_lang = 1, large;
@@ -48,6 +49,11 @@ static int system_lang(void) {
     case SCE_SYSTEM_PARAM_LANG_SPANISH: return 2;
     case SCE_SYSTEM_PARAM_LANG_PORTUGUESE_PT:
     case SCE_SYSTEM_PARAM_LANG_PORTUGUESE_BR: return 3;
+    case SCE_SYSTEM_PARAM_LANG_FRENCH: return 4;
+    case SCE_SYSTEM_PARAM_LANG_GERMAN: return 5;
+    case SCE_SYSTEM_PARAM_LANG_ITALIAN: return 6;
+    case SCE_SYSTEM_PARAM_LANG_JAPANESE: return 7;
+    case SCE_SYSTEM_PARAM_LANG_RUSSIAN: return 8;
     default: return 1;
     }
 }

@@ -1,0 +1,381 @@
+# VitaOS ja: English<TAB>translation (home/tools/lang_tables.py writes this file)
+Home	ホーム
+Play	プレイ
+Movies	映画
+Music	音楽
+Apps	アプリ
+Files	ファイル
+Store	ストア
+Settings	設定
+open	開く
+back	戻る
+select	決定
+choose	選択
+tabs	タブ
+L R tabs	L R タブ
+section	項目
+sections	項目
+adjust	調整
+move	移動
+put it here	ここに置く
+hold X move	X長押し 移動
+options	オプション
+refresh	更新
+view	表示
+delete	削除
+close	閉じる
+shutter	撮影
+flip	反転
+effect	エフェクト
+photos	写真
+camera	カメラ
+start	開始
+start all	すべて開始
+add URL	URL追加
+reload	再読込
+store (or cancel)	ストア(またはキャンセル)
+stop	停止
+mark	マーク
+actions	操作
+pane	ペイン
+devices	デバイス
+see it in the Store	ストアで見る
+scroll	スクロール
+resume	再開
+play / pause	再生 / 一時停止
+read	読む
+update all	すべて更新
+play	プレイ
+record	録音
+play/stop	再生/停止
+pause	一時停止
+play/pause	再生/一時停止
+previous/next	前/次
+like	いいね
+shuffle	シャッフル
+UP sections	上 項目
+now playing	再生中
+space	スペース
+clear	クリア
+results	結果
+type	入力
+keyboard	キーボード
+SELECT close	SELECT 閉じる
+clean up	整理
+measure again	再計測
+reinstall	再インストール
+update	アップデート
+install	インストール
+back to the apps	アプリへ戻る
+details	詳細
+new search	新しい検索
+search	検索
+rows	列
+sort: newest	並び: 新着
+sort: popular	並び: 人気
+X open	X 開く
+About this app	このアプリについて
+Delete this app	このアプリを削除
+Delete app	アプリを削除
+Deleting…	削除中…
+Moved	移動しました
+Refreshing apps	アプリを更新中
+Loading your apps…	アプリを読み込み中…
+Battery health	バッテリーの状態
+Good	良好
+Worn	劣化
+Replace soon	交換推奨
+of its capacity when new	新品時の容量比
+The battery does not report its health.	バッテリーが状態を報告しません。
+Holds when full	満充電時
+Holds now	現在の残量
+Charge cycles	充電サイクル
+Now	現在
+Time per charge	1回の充電の持ち
+Still measuring. Use the Vita on battery	計測中です。バッテリーで
+for a couple of hours, games included.	数時間使ってください（ゲーム含む）。
+Replacement part: SP86R (PCH-2000).	交換部品: SP86R (PCH-2000)
+Replacement part: SP65M (PCH-1000).	交換部品: SP65M (PCH-1000)
+Listings of 3800 mAh or more in the stock size	純正サイズで3800mAh以上の表記は
+rarely hold that; a good one matches a new battery.	まず誇大です。良品は新品と同等。
+Could not save the photo	写真を保存できません
+Camera closed to save power	節電のためカメラを閉じました
+Starting camera…	カメラを起動中…
+Delete photo	写真を削除
+Photo deleted	写真を削除しました
+No screenshots in this album yet.	このアルバムにはスクリーンショットがありません。
+No photos yet. Press START to open the camera.	写真がありません。STARTでカメラを開きます。
+Looking for photos…	写真を検索中…
+No screenshots yet. PS + START on any game saves one.	スクリーンショットはまだありません。ゲーム中にPS + STARTで保存。
+A download failed: see Downloads	ダウンロードに失敗: ダウンロードを確認
+Nothing queued	キューは空です
+Downloading	ダウンロード中
+Stop the running job	実行中の処理を停止
+Keep going	続ける
+Copy to other pane	反対側へコピー
+Move to other pane	反対側へ移動
+Delete	削除
+Rename	名前を変更
+New folder	新しいフォルダ
+Properties	プロパティ
+Copying	コピー中
+Moving	移動中
+Deleting	削除中
+Hashing	ハッシュ計算中
+Some items failed	一部失敗しました
+Pick a folder	フォルダを選択
+Copy	コピー
+Move	移動
+Protected	保護
+Rename failed	名前の変更に失敗
+New folder failed	フォルダ作成に失敗
+Pick a file, not a folder.	フォルダではなくファイルを選んでください。
+A job is running	処理を実行中です
+Stop	停止
+Actions	操作
+Devices	デバイス
+Loading…	読み込み中…
+Empty folder	空のフォルダ
+No devices	デバイスなし
+Sunday	日曜日
+Monday	月曜日
+Tuesday	火曜日
+Wednesday	水曜日
+Thursday	木曜日
+Friday	金曜日
+Saturday	土曜日
+Jan	1月
+Feb	2月
+Mar	3月
+Apr	4月
+May	5月
+Jun	6月
+Jul	7月
+Aug	8月
+Sep	9月
+Oct	10月
+Nov	11月
+Dec	12月
+THIS WEEK	今週
+played this week	今週のプレイ
+COMMUNITY NEWS	コミュニティニュース
+See it in the Store	ストアで見る
+Welcome back	おかえりなさい
+Play a game, a film or an album and it shows up here.	ゲーム・映画・アルバムを再生するとここに表示されます。
+Could not start	起動できません
+The game would not launch.	ゲームを起動できませんでした。
+Updating apps in the background	バックグラウンドでアプリを更新中
+JUMP BACK IN	続きから
+RECENTLY PLAYED	最近プレイ
+QUICK RESUME	クイック再開
+Your week	今週のまとめ
+STORE	ストア
+WEEK	週
+FILM	映画
+NEWS	ニュース
+MUSIC	音楽
+Settings would not open	設定を開けませんでした
+Devices > Bluetooth Devices. PS comes back here.	機器 > Bluetooth機器。PSでここに戻ります。
+Find games again	ゲームを再検索
+Already looking for games	すでに検索中です
+Looking for games…	ゲームを検索中…
+Download box art	パッケージ画像を取得
+Already downloading box art	すでに画像を取得中です
+Downloading box art in the background	バックグラウンドで画像を取得中
+This Vita uses a library built on a computer, so VitaOS leaves it as it is.	このVitaはPCで作ったライブラリを使っているため、VitaOSは変更しません。
+This Vita uses a library built on a computer, which has its own art.	このVitaのライブラリはPCで作成され、画像も含まれています。
+An agent is working on this Vita	エージェントが作業中です
+Display & sound	画面とサウンド
+Battery & power	バッテリーと電源
+Network	ネットワーク
+Storage	ストレージ
+About this Vita	このVitaについて
+Memory card	メモリーカード
+System	システム
+Internal	内蔵
+Sleep	スリープ
+Restart	再起動
+Power off	電源オフ
+Weather	天気
+Weather off	天気をオフ
+Change town	地域を変更
+Turn the weather off	天気をオフにする
+Could not reach the weather service. Check Wi-Fi and try again.	天気サービスに接続できません。Wi-Fiを確認してください。
+No town by that name. Try the nearest city.	その名前の地域はありません。近くの都市を試してください。
+Which one?	どれですか？
+Town or city	市町村
+Wallpaper set	壁紙を設定しました
+Theme	テーマ
+Accent colour	アクセントカラー
+Accent: match the art	アクセント: 画像に合わせる
+Accent set	アクセントを設定しました
+Background	背景
+Background set	背景を設定しました
+Match the art	画像に合わせる
+Blue	ブルー
+Purple	パープル
+Pink	ピンク
+Orange	オレンジ
+Green	グリーン
+Teal	ティール
+Plain	シンプル
+Midnight	ミッドナイト
+Wallpaper	壁紙
+Brightness	明るさ
+Volume	音量
+UI sounds	操作音
+Home music	ホームの音楽
+Large text	大きな文字
+Language	言語
+Automatic	自動
+Battery	バッテリー
+Time left	残り時間
+System home	システムのホーム
+Signal	電波
+Address	アドレス
+Agents	エージェント
+Wi-Fi networks	Wi-Fiネットワーク
+Bluetooth devices	Bluetooth機器
+Manage storage	ストレージを管理
+Update	アップデート
+Start at boot	起動時に開く
+Hide the bubbles	バブルを隠す
+Movies tab	映画タブ
+Music tab	音楽タブ
+Not connected	未接続
+Remote listening	リモート待機中
+Off	オフ
+On external power	外部電源
+Estimating	推定中
+Put the Vita to sleep? Wi-Fi goes off too, so agents cannot reach it until you wake it with the power button.	Vitaをスリープにしますか？電源ボタンで起こすまでWi-Fiもオフになります。
+Restart the Vita now? Anything unsaved in a suspended game is lost.	Vitaを再起動しますか？中断中のゲームの未保存データは失われます。
+Turn the Vita off? Hold the power button to turn it back on.	Vitaの電源を切りますか？電源ボタン長押しで再び起動します。
+VitaOS will not open at power-on	起動時にVitaOSを開きません
+VitaOS opens at power-on (needs the PS plugin)	起動時にVitaOSを開きます（PSプラグインが必要）
+Movies tab hidden	映画タブを非表示
+Movies tab shown	映画タブを表示
+Music tab hidden	音楽タブを非表示
+Music tab shown	音楽タブを表示
+The bubbles are back	バブルを表示しました
+Bubbles hidden (needs the PS plugin 1.4)	バブルを隠しました（PSプラグイン1.4が必要）
+Could not save the setting	設定を保存できません
+About VitaOS	VitaOSについて
+Time per charge, and what a new battery would give	1回の充電の持ちと新品バッテリーの目安
+PS opens the system's bubbles for 30 s	PSで30秒間システムのバブルを開く
+The town on Home's weather widget	ホームの天気の地域
+Biggest folders, and clean up crash dumps and logs	大きなフォルダと、ダンプやログの整理
+Press X (or START anywhere in Settings)	X（または設定内でSTART）
+Open VitaOS at power-on (needs the PS plugin)	起動時にVitaOSを開く（PSプラグインが必要）
+VitaOS comes back when a game ends or the bubbles sit idle	ゲーム終了時やバブル放置時にVitaOSへ戻る
+Look through the card for new games	カード内の新しいゲームを探す
+For games that have none yet	画像がないゲーム向け
+Licence, credits and source	ライセンス・クレジット・ソース
+Join or switch networks in the system's Wi-Fi page; PS comes back	システムのWi-Fi画面で接続・切替。PSで戻る
+Pairing opens the system Settings; PS comes back here	ペアリングはシステム設定で。PSでここに戻る
+Clean up	整理
+Cleaned up	整理しました
+Biggest folders	大きなフォルダ
+Crash dumps, RetroArch logs and temp,	クラッシュダンプ、RetroArchのログ、
+half-finished downloads.	途中のダウンロード。
+Nothing to clean up.	整理するものはありません。
+For you	おすすめ
+Top charts	ランキング
+Updates	アップデート
+Games	ゲーム
+Ports	移植
+Utilities	ユーティリティ
+Emulators	エミュレーター
+Popular right now	いま人気
+Ports of PC and console games	PC・家庭用ゲームの移植
+Handy utilities	便利なツール
+Homebrew games	自作ゲーム
+New and updated	新着・更新
+Update all	すべて更新
+Not installing this one	これはインストールしません
+Not a VPK	VPKではありません
+Blocked on this Vita	このVitaではブロック
+Installed: it is first in Apps	インストール完了: アプリの先頭
+Installed	インストール済み
+Install	インストール
+Also needs	必要なもの
+Data files: not installed automatically	データファイル: 自動ではインストールされません
+Loading screenshots	スクリーンショットを読込中
+No screenshots yet	スクリーンショットなし
+FEATURED	注目
+downloads	ダウンロード
+Refreshing the store	ストアを更新中
+Newest first	新しい順
+Most popular first	人気順
+The store could not be reached. [] tries again.	ストアに接続できません。[]で再試行。
+Loading the store…	ストアを読み込み中…
+Everything is up to date	すべて最新です
+Game	ゲーム
+Port	移植
+Utility	ツール
+Emulator	エミュレーター
+App	アプリ
+Installing…	インストール中…
+Search the Store	ストアを検索
+Search games, films, music, apps and settings	ゲーム・映画・音楽・アプリ・設定を検索
+Nothing matches that yet	一致するものがありません
+Nothing matches that yet.	一致するものがありません。
+Start typing: results appear here.	入力すると結果がここに表示されます。
+GAME	ゲーム
+APP	アプリ
+SETTING	設定
+Not offered	提供なし
+Memo saved	メモを保存しました
+Delete memo	メモを削除
+Memo deleted	メモを削除しました
+Voice Memos	ボイスメモ
+Recording	録音中
+New recording	新規録音
+Camera	カメラ
+Photos	写真
+Cannot play	再生できません
+The player would not open this file.	このファイルを開けませんでした。
+This film will not play	この映画は再生できません
+PAUSED	一時停止中
+Loading your films…	映画を読み込み中…
+No movies yet	映画がありません
+Removed from Liked songs	お気に入りから削除
+Added to Liked songs	お気に入りに追加
+This song would not play	この曲は再生できません
+Shuffle on	シャッフル オン
+Shuffle off	シャッフル オフ
+Delete song	曲を削除
+Could not update the library	ライブラリを更新できません
+Song deleted	曲を削除しました
+Repeat off	リピート オフ
+Repeat all	全曲リピート
+Repeat one	1曲リピート
+UP NEXT	次に再生
+Back to the start	最初に戻りました
+The end of the list	リストの最後です
+Loading your music…	音楽を読み込み中…
+No music yet	音楽がありません
+Songs you like show up here, newest first.	お気に入りの曲が新しい順に表示されます。
+Singles	シングル
+That file would not play	そのファイルは再生できません
+Adrenaline opens: pick the game there	Adrenalineが開きます。そこでゲームを選択
+Favourite ★	お気に入り ★
+Add to favourites	お気に入りに追加
+From Wikipedia (CC BY-SA)	出典: Wikipedia (CC BY-SA)
+Save states	ステートセーブ
+More like this	似たゲーム
+Remove from the menu	メニューから外す
+Remove and delete the file from the Vita	外してVitaからファイルを削除
+Remove and uninstall it from the Vita	外してVitaからアンインストール
+(no file to delete)	（削除するファイルなし）
+Cancel	キャンセル
+Clear	晴れ
+Partly cloudy	晴れ時々曇り
+Cloudy	曇り
+Fog	霧
+Drizzle	霧雨
+Heavy rain	大雨
+Rain	雨
+Snow	雪
+Showers	にわか雨
+Snow showers	にわか雪
+Thunderstorms	雷雨

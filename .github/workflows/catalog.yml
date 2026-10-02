@@ -1,0 +1,29 @@
+name: Store catalogue
+
+# The VitaOS Store's catalogue: VitaHomebrewDB + CBPS-DB, each GitHub-hosted
+# app moved to its newest release (catalog/build.py). Rebuilt every day and
+# published as catalog.json on the "catalog" release, where the Store reads it.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 catalog/build.py catalog.json
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view catalog >/dev/null 2>&1 || gh release create catalog --title "Store catalogue" \
+            --notes "The VitaOS Store's app list, rebuilt daily from VitaHomebrewDB and CBPS-DB. Not a VitaOS release." --latest=false
+          gh release upload catalog catalog.json --clobber

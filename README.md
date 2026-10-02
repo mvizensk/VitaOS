@@ -34,6 +34,18 @@ trademarks of Sony Interactive Entertainment.
 - **Files, Settings, search,** an on-screen keyboard, toasts, UI sounds and
   a live, tilt-aware background.
 
+## In your language
+
+VitaOS speaks English, Español, Português, Français, Deutsch, Italiano, 日本語 and Русский (Settings > Display & sound > Language; Automatic follows your Vita).
+
+- **Español:** Un menú de inicio moderno para PS Vita: tus juegos, películas, música y apps en un solo lugar, con una tienda de homebrew integrada. Gratis y de código abierto. Instálalo con VitaShell; después se actualiza desde Ajustes con un botón.
+- **Português:** Uma tela inicial moderna para o PS Vita: seus jogos, filmes, músicas e apps num só lugar, com uma loja de homebrew integrada. Gratuito e de código aberto. Instale com o VitaShell; depois ele se atualiza pelos Ajustes com um botão.
+- **Français :** Un écran d'accueil moderne pour la PS Vita : vos jeux, films, musique et applis au même endroit, avec une boutique homebrew intégrée. Gratuit et open source. Installez-le avec VitaShell ; ensuite il se met à jour depuis les Réglages en un clic.
+- **Deutsch:** Ein moderner Startbildschirm für die PS Vita: Spiele, Filme, Musik und Apps an einem Ort, mit eingebautem Homebrew-Store. Kostenlos und Open Source. Mit VitaShell installieren; danach aktualisiert es sich per Knopfdruck in den Optionen.
+- **Italiano:** Una schermata Home moderna per PS Vita: giochi, film, musica e app in un unico posto, con uno store homebrew integrato. Gratuito e open source. Installalo con VitaShell; poi si aggiorna dalle Impostazioni con un tasto.
+- **日本語:** PS Vita用のモダンなホーム画面。ゲーム・映画・音楽・アプリを一か所にまとめ、自作ソフトのストアも内蔵。無料のオープンソースです。VitaShellでインストールすれば、以降は設定からボタン一つでアップデートできます。
+- **Русский:** Современный главный экран для PS Vita: игры, фильмы, музыка и приложения в одном месте, со встроенным магазином homebrew. Бесплатно и с открытым кодом. Установите через VitaShell, дальше обновления ставятся одной кнопкой в Настройках.
+
 ## Install
 
 You need a Vita running HENkaku or Enso, with VitaShell.

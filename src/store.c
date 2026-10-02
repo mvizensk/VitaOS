@@ -26,14 +26,19 @@
 #include "../third_party/miniz/miniz.h"
 
 #define DIR "ux0:data/arcadehub/store"
-#define CATALOG_URL "https://drdecki.github.io/VitaHomebrewDB/apps.json"
+/* VitaOS's own catalogue first: VitaHomebrewDB + CBPS-DB, each GitHub-hosted
+ * app at its newest release, rebuilt daily (home/catalog/build.py, the
+ * public repo's catalog workflow). VitaHomebrewDB alone if that is down. */
+#define CATALOG_URL "https://github.com/mvizensk/VitaOS/releases/download/catalog/catalog.json"
+#define CATALOG_FALLBACK "https://drdecki.github.io/VitaHomebrewDB/apps.json"
 #define ICON_URL "https://drdecki.github.io/VitaHomebrewDB/icons/"
 #define BASE_URL "https://drdecki.github.io/VitaHomebrewDB/"
 #define MAX_APPS 1400
 
 typedef struct {
     char *name, *icon, *version, *author, *type, *description, *date, *titleid, *long_description,
-         *size, *url, *data, *requirements, *release_page, *downloads, *screenshots;
+         *size, *url, *data, *requirements, *release_page, *downloads, *screenshots,
+         *icon_url, *blocked, *source;          /* VitaOS's merged catalogue (home/catalog/build.py) */
     volatile int icon_state;                  /* 0 not asked, 1 queued, 2 on the card, 3 failed, 4 loaded */
     volatile int shots_state;                 /* 0 not asked, 1 fetching, 2 on the card */
     int inst;                                 /* 0 not checked, 1 not installed, 2 installed */
@@ -62,6 +67,7 @@ static volatile int icon_queue[16], iq_head, iq_tail, shot_want = -1;
 
 /* Titles that have caused trouble on this Vita: shown, never installed. */
 static int denied(const App *a) {
+    if (a->blocked && a->blocked[0]) return 1;           /* listed so you can see it, never downloaded */
     for (const char *h = a->name; *h; ++h) if (!strncasecmp(h, "caffeine", 8)) return 1;   /* wedged SceShell, 2026-09-19 */
     return 0;
 }
@@ -135,6 +141,7 @@ static void build_rows(void) {
         for (int k = 0; k < napps && nrow[r] < (r == 0 ? 6 : ROW_MAX); ++k) {
             App *a = &apps[all[k]];
             if (row_types[r] && strcmp(a->type, row_types[r])) continue;
+            if (a->blocked[0]) continue;                             /* not offered: only in its section and search */
             if (r == 0 && !a->screenshots[0]) continue;          /* the banner wants a picture */
             rows[r][nrow[r]++] = all[k];
         }
@@ -188,6 +195,7 @@ static void filter(void) {
     }
     for (int i = 0; i < napps; ++i) {
         if (cat == C_UPDATES) { inst_budget = 1; if (has_update(&apps[i])) view[nview++] = i; continue; }   /* opening Updates checks them all */
+        if (cat == C_TOP && apps[i].blocked[0]) continue;     /* not offered: not a chart */
         if (!cat_types[cat] || !strcmp(apps[i].type, cat_types[cat])) view[nview++] = i;
     }
     qsort(view, nview, sizeof(int), sort_new && cat >= 2 ? by_date : by_popular);
@@ -212,6 +220,7 @@ static int parse(char *p, App *out) {
 #define DEF(f) if (!cur.f) cur.f = ""
                 DEF(icon); DEF(version); DEF(author); DEF(type); DEF(description); DEF(date); DEF(titleid);
                 DEF(long_description); DEF(size); DEF(data); DEF(requirements); DEF(release_page); DEF(downloads); DEF(screenshots);
+                DEF(icon_url); DEF(blocked); DEF(source);
                 out[n++] = cur;
             }
             ++p;
@@ -228,7 +237,7 @@ static int parse(char *p, App *out) {
         if (0) {}
         KEY(name); KEY(icon); KEY(version); KEY(author); KEY(type); KEY(description); KEY(date); KEY(titleid);
         KEY(long_description); KEY(size); KEY(url); KEY(data); KEY(requirements); KEY(release_page); KEY(downloads);
-        KEY(screenshots);
+        KEY(screenshots); KEY(icon_url); KEY(blocked); KEY(source);
     }
     return n;
 }
@@ -679,7 +688,8 @@ static int worker(SceSize args, void *argp) {
         if (want_catalog) {
             want_catalog = 0;
             if (catalog_state != 2) catalog_state = 1;
-            if (fetch(CATALOG_URL, DIR "/apps.json") >= 0 && load_catalog() >= 0) catalog_state = 2;
+            if ((fetch(CATALOG_URL, DIR "/apps.json") >= 0 || fetch(CATALOG_FALLBACK, DIR "/apps.json") >= 0) && load_catalog() >= 0)
+                catalog_state = 2;
             else if (catalog_state != 2) catalog_state = 3;
         }
         if (shot_want >= 0 && shot_want < napps) {     /* the detail page's screenshots, up to three */
@@ -709,7 +719,8 @@ static int worker(SceSize args, void *argp) {
                 snprintf(dest, sizeof(dest), DIR "/icons/%s", apps[i].icon);
                 if (sceIoGetstat(dest, &st) >= 0) apps[i].icon_state = 2;
                 else {
-                    snprintf(url, sizeof(url), ICON_URL "%s", apps[i].icon);
+                    if (apps[i].icon_url[0]) snprintf(url, sizeof(url), "%s", apps[i].icon_url);   /* CBPS rows */
+                    else snprintf(url, sizeof(url), ICON_URL "%s", apps[i].icon);
                     apps[i].icon_state = fetch(url, dest) < 0 ? 3 : 2;
                 }
             }
@@ -874,7 +885,7 @@ static int detail_page(const Input *in, unsigned int p) {
     if (p & SCE_CTRL_CIRCLE && installing < 0) { detail = 0; job_stage = 0; return 1; }
     if (p & SCE_CTRL_CROSS && installing < 0 && job_stage != 4) {
         int is_vpk = strlen(a->url) > 4 && !strcasecmp(a->url + strlen(a->url) - 4, ".vpk");
-        if (denied(a)) ui_message("Not installing this one", "It wedged the shell on this Vita before (2026-09-19).");
+        if (denied(a)) ui_message("Not installing this one", a->blocked[0] ? a->blocked : "It wedged the shell on this Vita before (2026-09-19).");
         else if (!is_vpk) ui_message("Not a VPK", "This one downloads as an archive; install it by hand.");
         else {
             char msg[300];
@@ -892,7 +903,9 @@ static int detail_page(const Input *in, unsigned int p) {
     text_fit(bold, 152, 114, C_TEXT, 24, a->name, 310);
     text_fit(bold, 152, 139, C_ACCENT, 15, a->author, 310);
     char meta[96];
-    snprintf(meta, sizeof(meta), "%s  \xC2\xB7  %s", type_name(a), a->version);
+    if (a->source[0] && strcmp(a->source, "VitaHomebrewDB"))   /* where the listing comes from, when it is not the usual */
+        snprintf(meta, sizeof(meta), "%s  \xC2\xB7  %s  \xC2\xB7  %s", type_name(a), a->version[0] ? a->version : "-", a->source);
+    else snprintf(meta, sizeof(meta), "%s  \xC2\xB7  %s", type_name(a), a->version);
     text_fit(font, 152, 160, C_DIM, 13, meta, 310);
     char dl[16], mb[16];
     short_count(a->downloads, dl, sizeof(dl));
@@ -911,7 +924,8 @@ static int detail_page(const Input *in, unsigned int p) {
         text(font, 40, by + 20, job_stage == 9 ? C_BAD : C_TEXT, 16, job_msg);
         if (job_stage >= 1 && job_stage <= 3) draw_bar(40, by + 32, 420, 5, job_stage == 3 ? ui_pulse() : job_frac, C_ACCENT);
     } else if (denied(a)) {
-        draw_action_button(40, by, 420, 44, "Blocked on this Vita", 1, C_BAD);
+        draw_action_button(40, by, 420, 44, a->blocked[0] ? "Not offered" : "Blocked on this Vita", 1, C_BAD);
+        if (a->blocked[0]) draw_wrapped_text(a->blocked, 40, by + 66, 420, 13, 2, C_BAD);
     } else if (upd) {
         char label[48];
         snprintf(label, sizeof(label), "X Update to %s", a->version);

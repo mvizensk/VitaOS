@@ -12,5 +12,6 @@ typedef struct UiFont UiFont;
 UiFont *uifont_load(const char *path);
 int uifont_draw(UiFont *f, int x, int y, unsigned int color, unsigned int size, const char *text);
 int uifont_width(UiFont *f, unsigned int size, const char *text);
+void uifont_set_fallback(UiFont *f);   /* characters the fonts lack (Japanese) come from here */
 
 #endif

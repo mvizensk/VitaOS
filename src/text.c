@@ -24,6 +24,9 @@ static unsigned char *pixels;
 static unsigned int stride;
 static int shelf_x, shelf_y, shelf_h, fonts;
 static Glyph cache[SLOTS];
+static UiFont *fallback;                 /* Japanese (Noto Sans JP, cut down): characters Inter lacks */
+
+void uifont_set_fallback(UiFont *f) { fallback = f; }
 
 static void atlas_reset(void) {
     vita2d_wait_rendering_done();            /* the GPU may still be reading it */
@@ -79,10 +82,12 @@ static Glyph *glyph(UiFont *f, int size, int cp) {
         Glyph *g = &cache[h];
         if (g->used && g->font == f->id && g->size == size && g->cp == cp) return g;
         if (g->used) continue;
-        /* Not cached: render it. */
-        FT_Set_Pixel_Sizes(f->face, 0, size);
-        if (FT_Load_Char(f->face, cp, FT_LOAD_RENDER)) return NULL;
-        FT_GlyphSlot s = f->face->glyph;
+        /* Not cached: render it, from the fallback font when this one has no such character. */
+        FT_Face face = f->face;
+        if (fallback && fallback != f && !FT_Get_Char_Index(face, cp) && FT_Get_Char_Index(fallback->face, cp)) face = fallback->face;
+        FT_Set_Pixel_Sizes(face, 0, size);
+        if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) return NULL;
+        FT_GlyphSlot s = face->glyph;
         int w = s->bitmap.width, bh = s->bitmap.rows;
         if (shelf_x + w + PAD > ATLAS) { shelf_x = 0; shelf_y += shelf_h + PAD; shelf_h = 0; }
         if (shelf_y + bh + PAD > ATLAS) { atlas_reset(); return glyph(f, size, cp); }

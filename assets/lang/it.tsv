@@ -1,0 +1,381 @@
+# VitaOS it: English<TAB>translation (home/tools/lang_tables.py writes this file)
+Home	Home
+Play	Gioca
+Movies	Film
+Music	Musica
+Apps	App
+Files	File
+Store	Store
+Settings	Impostaz.
+open	apri
+back	indietro
+select	seleziona
+choose	scegli
+tabs	schede
+L R tabs	L R schede
+section	sezione
+sections	sezioni
+adjust	regola
+move	sposta
+put it here	metti qui
+hold X move	tieni X sposta
+options	opzioni
+refresh	aggiorna
+view	vedi
+delete	elimina
+close	chiudi
+shutter	scatta
+flip	gira
+effect	effetto
+photos	foto
+camera	fotocamera
+start	avvia
+start all	avvia tutto
+add URL	aggiungi URL
+reload	ricarica
+store (or cancel)	store (o annulla)
+stop	ferma
+mark	seleziona
+actions	azioni
+pane	pannello
+devices	dispositivi
+see it in the Store	vedi nello Store
+scroll	scorri
+resume	riprendi
+play / pause	play / pausa
+read	leggi
+update all	aggiorna tutto
+play	gioca
+record	registra
+play/stop	play/stop
+pause	pausa
+play/pause	play/pausa
+previous/next	prec./succ.
+like	mi piace
+shuffle	casuale
+UP sections	SU sezioni
+now playing	in riproduzione
+space	spazio
+clear	cancella
+results	risultati
+type	digita
+keyboard	tastiera
+SELECT close	SELECT chiudi
+clean up	pulisci
+measure again	misura di nuovo
+reinstall	reinstalla
+update	aggiorna
+install	installa
+back to the apps	torna alle app
+details	dettagli
+new search	nuova ricerca
+search	cerca
+rows	righe
+sort: newest	ordine: recenti
+sort: popular	ordine: popolari
+X open	X apri
+About this app	Info sull'app
+Delete this app	Elimina questa app
+Delete app	Elimina app
+Deleting…	Eliminazione…
+Moved	Spostata
+Refreshing apps	Aggiornamento app
+Loading your apps…	Caricamento app…
+Battery health	Salute batteria
+Good	Buona
+Worn	Usurata
+Replace soon	Da sostituire
+of its capacity when new	della capacità da nuova
+The battery does not report its health.	La batteria non indica il suo stato.
+Holds when full	Carica massima
+Holds now	Carica attuale
+Charge cycles	Cicli di carica
+Now	Ora
+Time per charge	Durata per carica
+Still measuring. Use the Vita on battery	Misura in corso. Usa la Vita a batteria
+for a couple of hours, games included.	per un paio d'ore, giochi inclusi.
+Replacement part: SP86R (PCH-2000).	Ricambio: SP86R (PCH-2000).
+Replacement part: SP65M (PCH-1000).	Ricambio: SP65M (PCH-1000).
+Listings of 3800 mAh or more in the stock size	Gli annunci da 3800 mAh o più nel formato originale
+rarely hold that; a good one matches a new battery.	raramente lo mantengono; una buona vale una nuova.
+Could not save the photo	Impossibile salvare la foto
+Camera closed to save power	Fotocamera chiusa per risparmio
+Starting camera…	Avvio fotocamera…
+Delete photo	Elimina foto
+Photo deleted	Foto eliminata
+No screenshots in this album yet.	Nessuno screenshot in questo album.
+No photos yet. Press START to open the camera.	Nessuna foto. Premi START per la fotocamera.
+Looking for photos…	Ricerca foto…
+No screenshots yet. PS + START on any game saves one.	Nessuno screenshot. PS + START in gioco ne salva uno.
+A download failed: see Downloads	Un download non è riuscito: vedi Download
+Nothing queued	Niente in coda
+Downloading	Download in corso
+Stop the running job	Ferma l'operazione
+Keep going	Continua
+Copy to other pane	Copia nell'altro pannello
+Move to other pane	Sposta nell'altro pannello
+Delete	Elimina
+Rename	Rinomina
+New folder	Nuova cartella
+Properties	Proprietà
+Copying	Copia
+Moving	Spostamento
+Deleting	Eliminazione
+Hashing	Calcolo hash
+Some items failed	Alcuni elementi non riusciti
+Pick a folder	Scegli una cartella
+Copy	Copia
+Move	Sposta
+Protected	Protetto
+Rename failed	Rinomina non riuscita
+New folder failed	Impossibile creare la cartella
+Pick a file, not a folder.	Scegli un file, non una cartella.
+A job is running	Operazione in corso
+Stop	Ferma
+Actions	Azioni
+Devices	Dispositivi
+Loading…	Caricamento…
+Empty folder	Cartella vuota
+No devices	Nessun dispositivo
+Sunday	Domenica
+Monday	Lunedì
+Tuesday	Martedì
+Wednesday	Mercoledì
+Thursday	Giovedì
+Friday	Venerdì
+Saturday	Sabato
+Jan	gen
+Feb	feb
+Mar	mar
+Apr	apr
+May	mag
+Jun	giu
+Jul	lug
+Aug	ago
+Sep	set
+Oct	ott
+Nov	nov
+Dec	dic
+THIS WEEK	QUESTA SETTIMANA
+played this week	giocato questa settimana
+COMMUNITY NEWS	NOTIZIE DALLA COMMUNITY
+See it in the Store	Vedi nello Store
+Welcome back	Bentornato
+Play a game, a film or an album and it shows up here.	Avvia un gioco, un film o un album e apparirà qui.
+Could not start	Impossibile avviare
+The game would not launch.	Il gioco non si è avviato.
+Updating apps in the background	Aggiornamento app in background
+JUMP BACK IN	RIPRENDI
+RECENTLY PLAYED	GIOCATI DI RECENTE
+QUICK RESUME	RIPRESA RAPIDA
+Your week	La tua settimana
+STORE	STORE
+WEEK	SETTIMANA
+FILM	FILM
+NEWS	NOTIZIE
+MUSIC	MUSICA
+Settings would not open	Impostazioni non si aprono
+Devices > Bluetooth Devices. PS comes back here.	Dispositivi > Bluetooth. PS torna qui.
+Find games again	Cerca di nuovo i giochi
+Already looking for games	Ricerca già in corso
+Looking for games…	Ricerca giochi…
+Download box art	Scarica copertine
+Already downloading box art	Copertine già in download
+Downloading box art in the background	Download copertine in background
+This Vita uses a library built on a computer, so VitaOS leaves it as it is.	Questa Vita usa una libreria creata su computer; VitaOS la lascia così.
+This Vita uses a library built on a computer, which has its own art.	Questa Vita usa una libreria creata su computer, con le sue copertine.
+An agent is working on this Vita	Un agente sta lavorando su questa Vita
+Display & sound	Schermo e suono
+Battery & power	Batteria e alimentazione
+Network	Rete
+Storage	Archiviazione
+About this Vita	Info su questa Vita
+Memory card	Memory card
+System	Sistema
+Internal	Interna
+Sleep	Riposo
+Restart	Riavvia
+Power off	Spegni
+Weather	Meteo
+Weather off	Meteo disattivato
+Change town	Cambia città
+Turn the weather off	Disattiva il meteo
+Could not reach the weather service. Check Wi-Fi and try again.	Servizio meteo non raggiungibile. Controlla il Wi-Fi.
+No town by that name. Try the nearest city.	Nessuna città con questo nome. Prova la più vicina.
+Which one?	Quale?
+Town or city	Città
+Wallpaper set	Sfondo impostato
+Theme	Tema
+Accent colour	Colore d'accento
+Accent: match the art	Accento: come la copertina
+Accent set	Accento impostato
+Background	Sfondo
+Background set	Sfondo impostato
+Match the art	Come la copertina
+Blue	Blu
+Purple	Viola
+Pink	Rosa
+Orange	Arancione
+Green	Verde
+Teal	Verde acqua
+Plain	Semplice
+Midnight	Mezzanotte
+Wallpaper	Sfondo
+Brightness	Luminosità
+Volume	Volume
+UI sounds	Suoni interfaccia
+Home music	Musica della Home
+Large text	Testo grande
+Language	Lingua
+Automatic	Automatica
+Battery	Batteria
+Time left	Tempo residuo
+System home	Home di sistema
+Signal	Segnale
+Address	Indirizzo
+Agents	Agenti
+Wi-Fi networks	Reti Wi-Fi
+Bluetooth devices	Dispositivi Bluetooth
+Manage storage	Gestisci archiviazione
+Update	Aggiorna
+Start at boot	Apri all'avvio
+Hide the bubbles	Nascondi le bolle
+Movies tab	Scheda Film
+Music tab	Scheda Musica
+Not connected	Non connesso
+Remote listening	In ascolto remoto
+Off	Disattivato
+On external power	Alimentazione esterna
+Estimating	Stima in corso
+Put the Vita to sleep? Wi-Fi goes off too, so agents cannot reach it until you wake it with the power button.	Mettere la Vita in riposo? Anche il Wi-Fi si spegne finché non la riattivi col tasto di accensione.
+Restart the Vita now? Anything unsaved in a suspended game is lost.	Riavviare la Vita? I progressi non salvati di un gioco sospeso andranno persi.
+Turn the Vita off? Hold the power button to turn it back on.	Spegnere la Vita? Tieni premuto il tasto di accensione per riaccenderla.
+VitaOS will not open at power-on	VitaOS non si aprirà all'avvio
+VitaOS opens at power-on (needs the PS plugin)	VitaOS si apre all'avvio (serve il plugin PS)
+Movies tab hidden	Scheda Film nascosta
+Movies tab shown	Scheda Film visibile
+Music tab hidden	Scheda Musica nascosta
+Music tab shown	Scheda Musica visibile
+The bubbles are back	Le bolle sono tornate
+Bubbles hidden (needs the PS plugin 1.4)	Bolle nascoste (serve il plugin PS 1.4)
+Could not save the setting	Impossibile salvare l'impostazione
+About VitaOS	Info su VitaOS
+Time per charge, and what a new battery would give	Durata per carica e cosa darebbe una batteria nuova
+PS opens the system's bubbles for 30 s	PS apre le bolle di sistema per 30 s
+The town on Home's weather widget	La città del widget meteo
+Biggest folders, and clean up crash dumps and logs	Cartelle più grandi e pulizia di dump e log
+Press X (or START anywhere in Settings)	Premi X (o START ovunque nelle Impostazioni)
+Open VitaOS at power-on (needs the PS plugin)	Apri VitaOS all'avvio (serve il plugin PS)
+VitaOS comes back when a game ends or the bubbles sit idle	VitaOS torna quando un gioco finisce o le bolle restano inattive
+Look through the card for new games	Cerca nuovi giochi sulla scheda
+For games that have none yet	Per i giochi che non ne hanno
+Licence, credits and source	Licenza, crediti e sorgente
+Join or switch networks in the system's Wi-Fi page; PS comes back	Connettiti o cambia rete nella pagina Wi-Fi di sistema; PS torna
+Pairing opens the system Settings; PS comes back here	L'associazione apre le Impostazioni di sistema; PS torna qui
+Clean up	Pulisci
+Cleaned up	Pulito
+Biggest folders	Cartelle più grandi
+Crash dumps, RetroArch logs and temp,	Dump di crash, log e temp di RetroArch,
+half-finished downloads.	download incompleti.
+Nothing to clean up.	Niente da pulire.
+For you	Per te
+Top charts	Classifiche
+Updates	Aggiornamenti
+Games	Giochi
+Ports	Port
+Utilities	Utilità
+Emulators	Emulatori
+Popular right now	Popolari ora
+Ports of PC and console games	Port di giochi PC e console
+Handy utilities	Utilità pratiche
+Homebrew games	Giochi homebrew
+New and updated	Nuovi e aggiornati
+Update all	Aggiorna tutto
+Not installing this one	Non installabile
+Not a VPK	Non è un VPK
+Blocked on this Vita	Bloccato su questa Vita
+Installed: it is first in Apps	Installata: è la prima nelle App
+Installed	Installata
+Install	Installa
+Also needs	Richiede anche
+Data files: not installed automatically	File dati: non installati automaticamente
+Loading screenshots	Caricamento screenshot
+No screenshots yet	Ancora nessuno screenshot
+FEATURED	IN EVIDENZA
+downloads	download
+Refreshing the store	Aggiornamento dello store
+Newest first	Più recenti prima
+Most popular first	Più popolari prima
+The store could not be reached. [] tries again.	Store non raggiungibile. [] riprova.
+Loading the store…	Caricamento dello store…
+Everything is up to date	Tutto aggiornato
+Game	Gioco
+Port	Port
+Utility	Utilità
+Emulator	Emulatore
+App	App
+Installing…	Installazione…
+Search the Store	Cerca nello Store
+Search games, films, music, apps and settings	Cerca giochi, film, musica, app e impostazioni
+Nothing matches that yet	Ancora nessun risultato
+Nothing matches that yet.	Ancora nessun risultato.
+Start typing: results appear here.	Inizia a digitare: i risultati appaiono qui.
+GAME	GIOCO
+APP	APP
+SETTING	IMPOST.
+Not offered	Non disponibile
+Memo saved	Memo salvato
+Delete memo	Elimina memo
+Memo deleted	Memo eliminato
+Voice Memos	Memo vocali
+Recording	Registrazione
+New recording	Nuova registrazione
+Camera	Fotocamera
+Photos	Foto
+Cannot play	Impossibile riprodurre
+The player would not open this file.	Il lettore non ha aperto il file.
+This film will not play	Questo film non si riproduce
+PAUSED	IN PAUSA
+Loading your films…	Caricamento film…
+No movies yet	Ancora nessun film
+Removed from Liked songs	Rimosso dai preferiti
+Added to Liked songs	Aggiunto ai preferiti
+This song would not play	Questo brano non si riproduce
+Shuffle on	Casuale attivo
+Shuffle off	Casuale disattivo
+Delete song	Elimina brano
+Could not update the library	Impossibile aggiornare la libreria
+Song deleted	Brano eliminato
+Repeat off	Ripeti disattivo
+Repeat all	Ripeti tutto
+Repeat one	Ripeti uno
+UP NEXT	A SEGUIRE
+Back to the start	Torna all'inizio
+The end of the list	Fine dell'elenco
+Loading your music…	Caricamento musica…
+No music yet	Ancora nessuna musica
+Songs you like show up here, newest first.	I brani che ti piacciono appaiono qui, i più recenti prima.
+Singles	Singoli
+That file would not play	Il file non si riproduce
+Adrenaline opens: pick the game there	Si apre Adrenaline: scegli lì il gioco
+Favourite ★	Preferito ★
+Add to favourites	Aggiungi ai preferiti
+From Wikipedia (CC BY-SA)	Da Wikipedia (CC BY-SA)
+Save states	Salvataggi rapidi
+More like this	Simili
+Remove from the menu	Rimuovi dal menu
+Remove and delete the file from the Vita	Rimuovi ed elimina il file dalla Vita
+Remove and uninstall it from the Vita	Rimuovi e disinstalla dalla Vita
+(no file to delete)	(nessun file da eliminare)
+Cancel	Annulla
+Clear	Sereno
+Partly cloudy	Parzialmente nuvoloso
+Cloudy	Nuvoloso
+Fog	Nebbia
+Drizzle	Pioviggine
+Heavy rain	Pioggia forte
+Rain	Pioggia
+Snow	Neve
+Showers	Rovesci
+Snow showers	Rovesci di neve
+Thunderstorms	Temporali

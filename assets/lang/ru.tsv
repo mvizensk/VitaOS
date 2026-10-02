@@ -1,0 +1,381 @@
+# VitaOS ru: English<TAB>translation (home/tools/lang_tables.py writes this file)
+Home	Главная
+Play	Игры
+Movies	Фильмы
+Music	Музыка
+Apps	Прил.
+Files	Файлы
+Store	Магазин
+Settings	Настройки
+open	открыть
+back	назад
+select	выбрать
+choose	выбор
+tabs	вкладки
+L R tabs	L R вкладки
+section	раздел
+sections	разделы
+adjust	настроить
+move	переместить
+put it here	сюда
+hold X move	удерж. X двигать
+options	опции
+refresh	обновить
+view	смотреть
+delete	удалить
+close	закрыть
+shutter	снимок
+flip	перевернуть
+effect	эффект
+photos	фото
+camera	камера
+start	начать
+start all	начать все
+add URL	добавить URL
+reload	перезагрузить
+store (or cancel)	магазин (или отмена)
+stop	стоп
+mark	отметить
+actions	действия
+pane	панель
+devices	устройства
+see it in the Store	в магазине
+scroll	прокрутка
+resume	продолжить
+play / pause	играть / пауза
+read	читать
+update all	обновить все
+play	играть
+record	запись
+play/stop	играть/стоп
+pause	пауза
+play/pause	играть/пауза
+previous/next	назад/вперёд
+like	нравится
+shuffle	перемешать
+UP sections	ВВЕРХ разделы
+now playing	сейчас играет
+space	пробел
+clear	очистить
+results	результаты
+type	ввод
+keyboard	клавиатура
+SELECT close	SELECT закрыть
+clean up	очистить
+measure again	измерить снова
+reinstall	переустановить
+update	обновить
+install	установить
+back to the apps	к приложениям
+details	подробнее
+new search	новый поиск
+search	поиск
+rows	ряды
+sort: newest	сорт.: новые
+sort: popular	сорт.: популярные
+X open	X открыть
+About this app	Об этом приложении
+Delete this app	Удалить это приложение
+Delete app	Удалить приложение
+Deleting…	Удаление…
+Moved	Перемещено
+Refreshing apps	Обновление приложений
+Loading your apps…	Загрузка приложений…
+Battery health	Состояние батареи
+Good	Хорошее
+Worn	Изношена
+Replace soon	Скоро заменить
+of its capacity when new	от ёмкости новой
+The battery does not report its health.	Батарея не сообщает своё состояние.
+Holds when full	Ёмкость полная
+Holds now	Сейчас
+Charge cycles	Циклы зарядки
+Now	Сейчас
+Time per charge	Время работы
+Still measuring. Use the Vita on battery	Идёт измерение. Поиграйте от батареи
+for a couple of hours, games included.	пару часов, вместе с играми.
+Replacement part: SP86R (PCH-2000).	Запчасть: SP86R (PCH-2000).
+Replacement part: SP65M (PCH-1000).	Запчасть: SP65M (PCH-1000).
+Listings of 3800 mAh or more in the stock size	Объявления на 3800 мА·ч и больше в штатном размере
+rarely hold that; a good one matches a new battery.	редко правдивы; хорошая равна новой.
+Could not save the photo	Не удалось сохранить фото
+Camera closed to save power	Камера закрыта для экономии
+Starting camera…	Запуск камеры…
+Delete photo	Удалить фото
+Photo deleted	Фото удалено
+No screenshots in this album yet.	В этом альбоме пока нет снимков.
+No photos yet. Press START to open the camera.	Фото пока нет. START открывает камеру.
+Looking for photos…	Поиск фото…
+No screenshots yet. PS + START on any game saves one.	Снимков нет. PS + START в игре сохраняет снимок.
+A download failed: see Downloads	Загрузка не удалась: см. Загрузки
+Nothing queued	Очередь пуста
+Downloading	Загрузка
+Stop the running job	Остановить задачу
+Keep going	Продолжить
+Copy to other pane	Копировать в другую панель
+Move to other pane	Переместить в другую панель
+Delete	Удалить
+Rename	Переименовать
+New folder	Новая папка
+Properties	Свойства
+Copying	Копирование
+Moving	Перемещение
+Deleting	Удаление
+Hashing	Хеширование
+Some items failed	Некоторые элементы не удались
+Pick a folder	Выберите папку
+Copy	Копировать
+Move	Переместить
+Protected	Защищено
+Rename failed	Не удалось переименовать
+New folder failed	Не удалось создать папку
+Pick a file, not a folder.	Выберите файл, а не папку.
+A job is running	Задача выполняется
+Stop	Стоп
+Actions	Действия
+Devices	Устройства
+Loading…	Загрузка…
+Empty folder	Пустая папка
+No devices	Нет устройств
+Sunday	Воскресенье
+Monday	Понедельник
+Tuesday	Вторник
+Wednesday	Среда
+Thursday	Четверг
+Friday	Пятница
+Saturday	Суббота
+Jan	янв
+Feb	фев
+Mar	мар
+Apr	апр
+May	мая
+Jun	июн
+Jul	июл
+Aug	авг
+Sep	сен
+Oct	окт
+Nov	ноя
+Dec	дек
+THIS WEEK	ЭТА НЕДЕЛЯ
+played this week	сыграно за неделю
+COMMUNITY NEWS	НОВОСТИ СООБЩЕСТВА
+See it in the Store	Открыть в магазине
+Welcome back	С возвращением
+Play a game, a film or an album and it shows up here.	Запустите игру, фильм или альбом, и он появится здесь.
+Could not start	Не удалось запустить
+The game would not launch.	Игра не запустилась.
+Updating apps in the background	Обновление приложений в фоне
+JUMP BACK IN	ПРОДОЛЖИТЬ
+RECENTLY PLAYED	НЕДАВНО
+QUICK RESUME	БЫСТРЫЙ ВОЗВРАТ
+Your week	Ваша неделя
+STORE	МАГАЗИН
+WEEK	НЕДЕЛЯ
+FILM	ФИЛЬМ
+NEWS	НОВОСТИ
+MUSIC	МУЗЫКА
+Settings would not open	Настройки не открылись
+Devices > Bluetooth Devices. PS comes back here.	Устройства > Bluetooth. PS вернёт сюда.
+Find games again	Найти игры заново
+Already looking for games	Поиск уже идёт
+Looking for games…	Поиск игр…
+Download box art	Скачать обложки
+Already downloading box art	Обложки уже загружаются
+Downloading box art in the background	Обложки загружаются в фоне
+This Vita uses a library built on a computer, so VitaOS leaves it as it is.	Эта Vita использует библиотеку с компьютера; VitaOS её не меняет.
+This Vita uses a library built on a computer, which has its own art.	Эта Vita использует библиотеку с компьютера, со своими обложками.
+An agent is working on this Vita	Агент работает с этой Vita
+Display & sound	Экран и звук
+Battery & power	Батарея и питание
+Network	Сеть
+Storage	Память
+About this Vita	Об этой Vita
+Memory card	Карта памяти
+System	Система
+Internal	Встроенная
+Sleep	Сон
+Restart	Перезапуск
+Power off	Выключить
+Weather	Погода
+Weather off	Погода выключена
+Change town	Сменить город
+Turn the weather off	Выключить погоду
+Could not reach the weather service. Check Wi-Fi and try again.	Сервис погоды недоступен. Проверьте Wi-Fi.
+No town by that name. Try the nearest city.	Нет такого города. Попробуйте ближайший.
+Which one?	Какой?
+Town or city	Город
+Wallpaper set	Обои установлены
+Theme	Тема
+Accent colour	Акцентный цвет
+Accent: match the art	Акцент: по обложке
+Accent set	Акцент установлен
+Background	Фон
+Background set	Фон установлен
+Match the art	По обложке
+Blue	Синий
+Purple	Фиолетовый
+Pink	Розовый
+Orange	Оранжевый
+Green	Зелёный
+Teal	Бирюзовый
+Plain	Простой
+Midnight	Полночь
+Wallpaper	Обои
+Brightness	Яркость
+Volume	Громкость
+UI sounds	Звуки интерфейса
+Home music	Музыка на главной
+Large text	Крупный текст
+Language	Язык
+Automatic	Авто
+Battery	Батарея
+Time left	Осталось
+System home	Системный экран
+Signal	Сигнал
+Address	Адрес
+Agents	Агенты
+Wi-Fi networks	Сети Wi-Fi
+Bluetooth devices	Устройства Bluetooth
+Manage storage	Управление памятью
+Update	Обновить
+Start at boot	Открывать при запуске
+Hide the bubbles	Скрыть пузыри
+Movies tab	Вкладка Фильмы
+Music tab	Вкладка Музыка
+Not connected	Не подключено
+Remote listening	Удалённый доступ
+Off	Выкл.
+On external power	От сети
+Estimating	Оценка
+Put the Vita to sleep? Wi-Fi goes off too, so agents cannot reach it until you wake it with the power button.	Перевести Vita в сон? Wi-Fi тоже отключится до пробуждения кнопкой питания.
+Restart the Vita now? Anything unsaved in a suspended game is lost.	Перезапустить Vita? Несохранённое в приостановленной игре будет потеряно.
+Turn the Vita off? Hold the power button to turn it back on.	Выключить Vita? Удерживайте кнопку питания, чтобы включить.
+VitaOS will not open at power-on	VitaOS не будет открываться при запуске
+VitaOS opens at power-on (needs the PS plugin)	VitaOS открывается при запуске (нужен плагин PS)
+Movies tab hidden	Вкладка Фильмы скрыта
+Movies tab shown	Вкладка Фильмы показана
+Music tab hidden	Вкладка Музыка скрыта
+Music tab shown	Вкладка Музыка показана
+The bubbles are back	Пузыри вернулись
+Bubbles hidden (needs the PS plugin 1.4)	Пузыри скрыты (нужен плагин PS 1.4)
+Could not save the setting	Не удалось сохранить настройку
+About VitaOS	О VitaOS
+Time per charge, and what a new battery would give	Время работы и что даст новая батарея
+PS opens the system's bubbles for 30 s	PS открывает системные пузыри на 30 с
+The town on Home's weather widget	Город в виджете погоды
+Biggest folders, and clean up crash dumps and logs	Крупные папки и очистка дампов и логов
+Press X (or START anywhere in Settings)	Нажмите X (или START в настройках)
+Open VitaOS at power-on (needs the PS plugin)	Открывать VitaOS при запуске (нужен плагин PS)
+VitaOS comes back when a game ends or the bubbles sit idle	VitaOS возвращается после игры или при простое
+Look through the card for new games	Искать новые игры на карте
+For games that have none yet	Для игр без обложки
+Licence, credits and source	Лицензия, авторы и исходный код
+Join or switch networks in the system's Wi-Fi page; PS comes back	Подключение в системном меню Wi-Fi; PS вернёт сюда
+Pairing opens the system Settings; PS comes back here	Сопряжение в системных настройках; PS вернёт сюда
+Clean up	Очистить
+Cleaned up	Очищено
+Biggest folders	Крупные папки
+Crash dumps, RetroArch logs and temp,	Дампы сбоев, логи RetroArch,
+half-finished downloads.	незавершённые загрузки.
+Nothing to clean up.	Нечего очищать.
+For you	Для вас
+Top charts	Топ
+Updates	Обновления
+Games	Игры
+Ports	Порты
+Utilities	Утилиты
+Emulators	Эмуляторы
+Popular right now	Популярно сейчас
+Ports of PC and console games	Порты игр с ПК и консолей
+Handy utilities	Полезные утилиты
+Homebrew games	Homebrew-игры
+New and updated	Новое и обновлённое
+Update all	Обновить все
+Not installing this one	Не устанавливается
+Not a VPK	Не VPK
+Blocked on this Vita	Заблокировано на этой Vita
+Installed: it is first in Apps	Установлено: первым в Приложениях
+Installed	Установлено
+Install	Установить
+Also needs	Также нужно
+Data files: not installed automatically	Файлы данных: не ставятся автоматически
+Loading screenshots	Загрузка скриншотов
+No screenshots yet	Скриншотов нет
+FEATURED	РЕКОМЕНДУЕМ
+downloads	загрузок
+Refreshing the store	Обновление магазина
+Newest first	Сначала новые
+Most popular first	Сначала популярные
+The store could not be reached. [] tries again.	Магазин недоступен. [] повторить.
+Loading the store…	Загрузка магазина…
+Everything is up to date	Всё обновлено
+Game	Игра
+Port	Порт
+Utility	Утилита
+Emulator	Эмулятор
+App	Прил.
+Installing…	Установка…
+Search the Store	Поиск в магазине
+Search games, films, music, apps and settings	Игры, фильмы, музыка, приложения, настройки
+Nothing matches that yet	Пока ничего не найдено
+Nothing matches that yet.	Пока ничего не найдено.
+Start typing: results appear here.	Начните вводить: результаты появятся здесь.
+GAME	ИГРА
+APP	ПРИЛ.
+SETTING	НАСТР.
+Not offered	Недоступно
+Memo saved	Заметка сохранена
+Delete memo	Удалить заметку
+Memo deleted	Заметка удалена
+Voice Memos	Диктофон
+Recording	Запись
+New recording	Новая запись
+Camera	Камера
+Photos	Фото
+Cannot play	Не воспроизводится
+The player would not open this file.	Плеер не открыл этот файл.
+This film will not play	Этот фильм не воспроизводится
+PAUSED	ПАУЗА
+Loading your films…	Загрузка фильмов…
+No movies yet	Фильмов пока нет
+Removed from Liked songs	Удалено из любимых
+Added to Liked songs	Добавлено в любимые
+This song would not play	Песня не воспроизводится
+Shuffle on	Перемешивание вкл.
+Shuffle off	Перемешивание выкл.
+Delete song	Удалить песню
+Could not update the library	Не удалось обновить библиотеку
+Song deleted	Песня удалена
+Repeat off	Повтор выкл.
+Repeat all	Повтор всех
+Repeat one	Повтор одной
+UP NEXT	ДАЛЕЕ
+Back to the start	К началу
+The end of the list	Конец списка
+Loading your music…	Загрузка музыки…
+No music yet	Музыки пока нет
+Songs you like show up here, newest first.	Любимые песни появятся здесь, сначала новые.
+Singles	Синглы
+That file would not play	Файл не воспроизводится
+Adrenaline opens: pick the game there	Откроется Adrenaline: выберите игру там
+Favourite ★	Избранное ★
+Add to favourites	В избранное
+From Wikipedia (CC BY-SA)	Из Википедии (CC BY-SA)
+Save states	Сохранения
+More like this	Похожие
+Remove from the menu	Убрать из меню
+Remove and delete the file from the Vita	Убрать и удалить файл с Vita
+Remove and uninstall it from the Vita	Убрать и удалить с Vita
+(no file to delete)	(нет файла для удаления)
+Cancel	Отмена
+Clear	Ясно
+Partly cloudy	Переменная облачность
+Cloudy	Облачно
+Fog	Туман
+Drizzle	Морось
+Heavy rain	Ливень
+Rain	Дождь
+Snow	Снег
+Showers	Ливни
+Snow showers	Снегопад
+Thunderstorms	Грозы
