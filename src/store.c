@@ -20,6 +20,7 @@
 
 #include "store.h"
 #include "search.h"
+#include "drop.h"
 #include "apps.h"
 #include "sfx.h"
 #include "store_headbin.h"
@@ -859,8 +860,11 @@ static int updatable(const App *a) {
 
 int store_updates_count(void) { return updates_n; }
 
-/* Home's "N app updates" tile: X asks once, then the worker installs them in turn. */
-int store_update_all(void) {
+/* Home's "N app updates" tile: X asks once, then the worker installs them in
+ * turn. ask = 0 is Settings' automatic updates: no question, no "nothing" note. */
+int store_update_all_ask(int ask);
+int store_update_all(void) { return store_update_all_ask(1); }
+int store_update_all_ask(int ask) {
     if (updates_n <= 0 || installing >= 0 || queue_i < queue_n) return 0;
     /* Home asks before the Store tab was ever opened: the checked list is still
      * waiting to be swapped in (2026-10-02: "1 update", then "nothing to update"). */
@@ -873,12 +877,12 @@ int store_update_all(void) {
         if (len < 160) len += snprintf(names + len, sizeof(names) - len, "%s%s", len ? ", " : "", apps[i].name);
     }
     if (!n) {                                         /* never a silent X (2026-10-02) */
-        ui_message("Nothing to update here", "Those updates cannot be installed with one press: open the Store's Updates section.");
+        if (ask) ui_message("Nothing to update here", "Those updates cannot be installed with one press: open the Store's Updates section.");
         return 0;
     }
     char msg[320];
     snprintf(msg, sizeof(msg), "Update %d app%s: %s%s?", n, n == 1 ? "" : "s", names, len >= 160 ? "..." : "");
-    if (!ui_confirm("Update all", msg)) return 0;
+    if (ask && !ui_confirm("Update all", msg)) return 0;
     queue_n = n; queue_i = 0; queue_failed = 0;
     kick();
     return n;
@@ -993,6 +997,24 @@ static int req_missing(const App *a, char *msg, int max) {
     return miss;
 }
 
+/* Where a port's game files go (the first "Game Data Files ... in ux0:..."
+ * line): what the Wi-Fi drop writes into. 0 when it names no such folder. */
+static int drop_target(const App *a, char *where, int max) {
+    for (const char *s = a->requirements; *s;) {
+        const char *e = strchr(s, '\n');
+        int n = e ? (int)(e - s) : (int)strlen(s);
+        char line[200];
+        snprintf(line, sizeof(line), "%.*s", n < 199 ? n : 199, s);
+        if (strstr(line, "Data") || strstr(line, "data files") || strstr(line, "Game files")) {
+            where[0] = 0;
+            req_line(line, a->titleid, where, max);
+            if (!strncmp(where, "ux0:", 4)) return 1;
+        }
+        s = e ? e + 1 : s + n;
+    }
+    return 0;
+}
+
 /* For Play and Apps, before they launch something: what is still missing. */
 int store_missing_for(const char *tid, char *msg, int max) {
     for (int i = 0; i < napps; ++i)
@@ -1007,7 +1029,13 @@ static void open_detail(int app) { cur = app; detail = 1; job_stage = 0; }
 void store_leave(void) { if (installing < 0) { detail = 0; job_stage = 0; } chips = 0; }
 
 const char *store_hint(void) {
-    if (detail) return installing >= 0 ? "Installing\xE2\x80\xA6" : has_update(&apps[cur]) ? "X update    O back" : "X install    O back";
+    if (detail) {
+        static int for_cur = -1, drop;                /* worked out once per page: it reads the card */
+        if (for_cur != cur) { char w[160]; for_cur = cur; drop = is_installed(&apps[cur]) && drop_target(&apps[cur], w, sizeof(w)); }
+        if (installing >= 0) return "Installing\xE2\x80\xA6";
+        if (has_update(&apps[cur])) return drop ? "X update    /\\ send game files    O back" : "X update    O back";
+        return drop ? "X install    /\\ send game files    O back" : "X install    O back";
+    }
     if (chips) return "\xE2\x86\x90 \xE2\x86\x92  section    X back to the apps    L R tabs";
     if (cat == C_SEARCH) return nview ? "X details    /\\ new search    [] refresh    O downloads    L R tabs"
                                       : "X search    [] refresh    O downloads    L R tabs";
@@ -1026,6 +1054,10 @@ static int detail_page(const Input *in, unsigned int p) {
     const char *verb = upd ? "Update" : installed ? "Reinstall" : "Install";
     if (in->tapped && installing < 0 && in->tap_x >= 40 && in->tap_x < 460 && in->tap_y >= 250 && in->tap_y < 294) p |= SCE_CTRL_CROSS;
     if (p & SCE_CTRL_CIRCLE && installing < 0) { detail = 0; job_stage = 0; return 1; }
+    if (p & SCE_CTRL_TRIANGLE && installed) {        /* send its game files from a computer (drop.c) */
+        char where[160];
+        if (drop_target(a, where, sizeof(where))) { drop_open(where, a->name); return 1; }
+    }
     if (p & SCE_CTRL_CROSS && installing < 0 && job_stage != 4) {
         int is_vpk = strlen(a->url) > 4 && !strcasecmp(a->url + strlen(a->url) - 4, ".vpk");
         if (!strcmp(a->titleid, "VITAOS001") || !strncmp(a->titleid, "MVZA", 4))

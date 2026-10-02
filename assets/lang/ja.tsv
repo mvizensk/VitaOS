@@ -1,4 +1,22 @@
 # VitaOS ja: English<TAB>translation (home/tools/lang_tables.py writes this file)
+Recently added	最近追加
+Update apps automatically	アプリを自動更新
+Store apps update by themselves while the Vita charges	充電中にストアのアプリを自動で更新
+Apps update when you choose	アプリは手動で更新します
+Apps update while the Vita charges	充電中にアプリを更新します
+send game files	ゲームファイルを送る
+Send files from a computer	パソコンからファイルを送る
+Connect to Wi-Fi first.	先にWi-Fiに接続してください。
+On a computer or phone on the same Wi-Fi, open this address in a web browser, then choose the folder that holds the game files:	同じWi-Fiのパソコンかスマホのブラウザでこのアドレスを開き、ゲームファイルのフォルダを選んでください：
+Waiting for your computer...	パソコンを待っています...
+close (stops receiving)	閉じる（受信を停止）
+Ready to play	プレイ可能
+Needs your files	ファイルが必要です
+VitaOS closed unexpectedly	VitaOSが予期せず終了しました
+Nothing is sent unless you submit that issue yourself.	あなたが送信しない限り何も送られません。
+don't ask again	今後表示しない
+Crash reports: off	クラッシュ報告: オフ
+Nothing to update here	更新するものはありません
 Home	ホーム
 Play	プレイ
 Movies	映画

@@ -39,6 +39,7 @@
 #include "downloads.h"
 #include "battery.h"
 #include "crash.h"
+#include "drop.h"
 #include <psp2/apputil.h>
 #include "settings.h"
 #include "movies.h"
@@ -774,6 +775,13 @@ int main(void) {
             ui_end_frame();
             continue;
         }
+        if (drop_active()) {                     /* sending a port's game files from a computer */
+            drop_update(&in);
+            draw_footer(drop_hint());
+            ui_draw_toasts();
+            ui_end_frame();
+            continue;
+        }
         if (crash_active()) {                    /* last run crashed: offer the report, once */
             crash_update(&in);
             draw_footer(crash_hint());
@@ -799,6 +807,23 @@ int main(void) {
             ui_toast(m, C_ACCENT);
         }
         art_auto_tick();
+        {                                            /* Settings > VitaOS > Update apps automatically */
+            static unsigned int last_try;
+            if (frame_no - last_try > 60 * 60) {     /* about once a minute */
+                last_try = frame_no;
+                SceIoStat ast;
+                int of; float f;
+                if (sceIoGetstat("ux0:data/arcadehub/user/auto-update.on", &ast) >= 0 && scePowerIsPowerOnline() &&
+                    store_updates_count() > 0 && !store_update_progress(&of, &f)) {
+                    int n = store_update_all_ask(0);
+                    if (n > 0) {
+                        char m[64];
+                        snprintf(m, sizeof(m), "Updating %d app%s while charging", n, n == 1 ? "" : "s");
+                        ui_toast(m, C_ACCENT);
+                    }
+                }
+            }
+        }
         update_tick();                                /* a downloaded update hands over to VitaOS Updater */
         STAGE("tab body");
         if (tab != T_PLAY && tab != T_HOME) ui_ambient(1.0f);   /* Play and Home lay it over their art */

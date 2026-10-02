@@ -476,6 +476,7 @@ static void hide_game(int sys, int sel, int delete_rom) {
 /* Smart shelves. kind 0: genre words; 1: release years lo..hi; 2: never
  * played; 3: short sessions (quick-play genres a handheld suits). */
 static const struct { const char *name; const char *match[3]; unsigned int accent; int kind, lo, hi; } COLL[] = {
+    {"Recently added", {NULL, NULL, NULL},   0x34D399, 4, 0, 0},
     {"Short sessions", {"puzzle", "shoot", "fight"}, 0x38BDF8, 3, 0, 0},
     {"Never played", {NULL, NULL, NULL},    0x94A3B8, 2, 0, 0},
     {"Shooters",    {"shoot", "shmup", NULL},   0xEF4444, 0, 0, 0},
@@ -505,10 +506,90 @@ static int icontains(const char *hay, const char *needle) {
 
 static int plays_of(const Game *g);
 
+/* When each game was first seen (2026-10-02: a "Recently added" shelf).
+ * user/seen.tsv keeps "day<TAB>system<TAB>title"; the first time the file
+ * is made every game already there counts as old (day 0), so only games that
+ * arrive later are new. Days are days since 2000-01-01. */
+#define SEEN_FILE USER "seen.tsv"
+#define SEEN_SLOTS 16384
+#define NEW_DAYS 14
+static struct { unsigned int h; int day; } seen[SEEN_SLOTS];
+static int seen_loaded, seen_had_file, seen_dirty;
+
+static unsigned int game_hash(const char *sys, const char *title) {
+    unsigned int h = 2166136261u;
+    for (const unsigned char *p = (const unsigned char *)sys; *p; ++p) h = (h ^ *p) * 16777619u;
+    h = (h ^ '\t') * 16777619u;
+    for (const unsigned char *p = (const unsigned char *)title; *p; ++p) h = (h ^ *p) * 16777619u;
+    return h ? h : 1;
+}
+
+static int today(void) {
+    SceDateTime t;
+    sceRtcGetCurrentClockLocalTime(&t);
+    int days = 0;
+    for (int y = 2000; y < t.year; ++y) days += (y % 4 == 0 && (y % 100 || y % 400 == 0)) ? 366 : 365;
+    static const int mdays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    for (int m = 1; m < t.month; ++m) days += mdays[m - 1] + (m == 2 && t.year % 4 == 0 && (t.year % 100 || t.year % 400 == 0));
+    return days + t.day - 1;
+}
+
+static int *seen_slot(unsigned int h, int add) {
+    for (unsigned int i = h & (SEEN_SLOTS - 1), k = 0; k < SEEN_SLOTS; i = (i + 1) & (SEEN_SLOTS - 1), ++k) {
+        if (seen[i].h == h) return &seen[i].day;
+        if (!seen[i].h) { if (!add) return NULL; seen[i].h = h; seen[i].day = -1; return &seen[i].day; }
+    }
+    return NULL;
+}
+
+static void seen_load(void) {
+    seen_loaded = 1;
+    int len = 0;
+    char *buf = slurp(SEEN_FILE, &len);
+    if (!buf) return;
+    seen_had_file = 1;
+    for (char *line = strtok(buf, "\n"); line; line = strtok(NULL, "\n")) {
+        char *t1 = strchr(line, '\t'), *t2 = t1 ? strchr(t1 + 1, '\t') : NULL;
+        if (!t2) continue;
+        *t1 = *t2 = 0;
+        int *d = seen_slot(game_hash(t1 + 1, t2 + 1), 1);
+        if (d) *d = atoi(line);
+    }
+    free(buf);
+}
+
+/* The day this game was first seen; new games are noted now (written by seen_save). */
+static int first_seen(const Game *g) {
+    if (!seen_loaded) seen_load();
+    int *d = seen_slot(game_hash(systems[g->origin].id, g->title), 1);
+    if (!d) return 0;
+    if (*d < 0) { *d = seen_had_file ? today() : 0; seen_dirty = 1; }
+    return *d;
+}
+
+static void seen_save(void) {
+    if (!seen_dirty) return;
+    seen_dirty = 0;
+    static char line[256];
+    SceUID fd = sceIoOpen(SEEN_FILE, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+    if (fd < 0) return;
+    for (int s = first_real; s < last_real; ++s)
+        for (int i = 0; i < systems[s].count; ++i) {
+            const Game *g = &systems[s].games[i];
+            int n = snprintf(line, sizeof(line), "%d\t%s\t%s\n", first_seen(g), systems[s].id, g->title);
+            sceIoWrite(fd, line, n);
+        }
+    sceIoClose(fd);
+    seen_had_file = 1;
+}
+
+static int is_new(const Game *g) { int d = first_seen(g); return d > 0 && today() - d < NEW_DAYS; }
+
 static int in_coll(int c, const Game *g) {
     switch (COLL[c].kind) {
     case 1: { int y = g->year ? atoi(g->year) : 0; return y >= COLL[c].lo && y <= COLL[c].hi; }
     case 2: return plays_of(g) == 0;
+    case 4: return is_new(g);
     case 3: if (icontains(g->genre, "rpg") || icontains(g->genre, "role")) return 0;   /* never short */
             /* fall through: the quick-play genres */
     default:
@@ -521,6 +602,8 @@ static int in_coll(int c, const Game *g) {
 static int coll_of[MAX_COLL];  /* system slot -> COLL index */
 static int ncoll;
 
+static int by_seen(const void *a, const void *b) { return first_seen((const Game *)b) - first_seen((const Game *)a); }
+
 static void fill_colls(void) {
     for (int c = 0; c < ncoll; ++c) {
         System *sy = &systems[last_real + c];
@@ -528,6 +611,7 @@ static void fill_colls(void) {
         for (int s = first_real; s < last_real; ++s)
             for (int i = 0; i < systems[s].count; ++i)
                 if (in_coll(coll_of[c], &systems[s].games[i])) sy->games[sy->count++] = systems[s].games[i];
+        if (COLL[coll_of[c]].kind == 4) qsort(sy->games, sy->count, sizeof(Game), by_seen);   /* newest first */
     }
 }
 
@@ -539,7 +623,8 @@ static void build_colls(void) {
             for (int c = 0; c < NCOLL; ++c) total[c] += in_coll(c, &systems[s].games[i]);
     ncoll = 0;
     for (int c = 0; c < NCOLL && ncoll < MAX_COLL; ++c)
-        if (total[c] >= COLL_MIN) coll_of[ncoll++] = c;
+        if (total[c] >= (COLL[c].kind == 4 ? 1 : COLL_MIN)) coll_of[ncoll++] = c;   /* one new game is worth a shelf */
+    seen_save();                                     /* the first-seen days, for next time */
     if (!ncoll) return;
     if (nsys + ncoll > MAX_SYS) ncoll = MAX_SYS - nsys;
     /* after the real systems, so the consoles come first in the carousel */
@@ -1550,8 +1635,9 @@ void play_frame(const Input *in) {
         if (frame) background_a(S->accent, frame, 150);
         else background(S->accent, tex(g->bg[0] ? g->bg : g->cover));
         char head[96];
-        snprintf(head, sizeof(head), "%s   %d / %d%s%s", S->name, sel + 1, S->count,
-                 is_fav(g) ? "   \xE2\x98\x85" : "", sort_mode == 1 ? "   by year" : (sort_mode == 2 ? "   most played" : ""));
+        snprintf(head, sizeof(head), "%s   %d / %d%s%s%s", S->name, sel + 1, S->count,
+                 is_fav(g) ? "   \xE2\x98\x85" : "", is_new(g) ? "   NEW" : "",
+                 sort_mode == 1 ? "   by year" : (sort_mode == 2 ? "   most played" : ""));
         snprintf(context, sizeof(context), "%s", head);
         /* hero cover + details */
         vita2d_texture *cover = tex(g->cover);

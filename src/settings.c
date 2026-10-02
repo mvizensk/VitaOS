@@ -310,7 +310,7 @@ static void page_reset(void) { in_rows = 0; rsel = 0; pbtn = -1; scroll = scroll
 
 enum { R_INFO, R_SLIDER, R_ACTION, R_TOGGLE };
 enum { A_NONE, A_BRIGHT, A_VOLUME, A_SFX, A_AMBIENT, A_THEME, A_BATTERY, A_BUBBLES, A_SLEEP, A_RESTART, A_POWEROFF,
-       A_LANG, A_TEXTSIZE, A_WIFI, A_BLUETOOTH, A_WEATHER, A_STORAGE, A_UPDATE, A_BOOT, A_MOVIES, A_MUSIC, A_KIOSK, A_RESCAN, A_ART, A_ABOUT };
+       A_AUTOUPD, A_LANG, A_TEXTSIZE, A_WIFI, A_BLUETOOTH, A_WEATHER, A_STORAGE, A_UPDATE, A_BOOT, A_MOVIES, A_MUSIC, A_KIOSK, A_RESCAN, A_ART, A_ABOUT };
 typedef struct { int kind, act; const char *label, *sub; char value[96]; float frac; int on; unsigned int color; } Row;
 #define MAXROWS 12
 static Row rows[MAXROWS];
@@ -327,6 +327,7 @@ static Row *add(int kind, int act, const char *label) {
 #define BOOT_OFF "ux0:data/arcadehub/user/boot.off"
 #define HIDE_MOVIES "ux0:data/arcadehub/user/hide-movies"
 #define HIDE_MUSIC "ux0:data/arcadehub/user/hide-music"
+#define AUTO_UPDATE "ux0:data/arcadehub/user/auto-update.on"
 #ifdef VITAOS_KIOSK
 #define KIOSK_ON "ux0:data/arcadehub/user/kiosk.on"   /* read by home/plugin/kiosk.h */
 #endif
@@ -445,6 +446,9 @@ static void build_rows(void) {
         r->on = flag_set(KIOSK_ON);
         r->sub = "VitaOS comes back when a game ends or the bubbles sit idle";
 #endif
+        r = add(R_TOGGLE, A_AUTOUPD, "Update apps automatically");
+        r->on = flag_set(AUTO_UPDATE);
+        r->sub = "Store apps update by themselves while the Vita charges";
         r = add(R_TOGGLE, A_MOVIES, "Movies tab");
         r->on = !flag_set(HIDE_MOVIES);
         r = add(R_TOGGLE, A_MUSIC, "Music tab");
@@ -527,6 +531,10 @@ static void activate(Row *r) {
     case A_BOOT:
         flag_write(BOOT_OFF, r->on);
         ui_toast(r->on ? "VitaOS will not open at power-on" : "VitaOS opens at power-on (needs the PS plugin)", r->on ? C_ACCENT : C_OK);
+        break;
+    case A_AUTOUPD:
+        flag_write(AUTO_UPDATE, !r->on);
+        ui_toast(r->on ? "Apps update when you choose" : "Apps update while the Vita charges", C_OK);
         break;
     case A_MOVIES:                                       /* Reddit, 2026-09-27: hide Movies and Music */
         flag_write(HIDE_MOVIES, r->on);

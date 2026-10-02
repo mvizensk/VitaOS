@@ -13,7 +13,8 @@ int store_match(const char *headline);   /* the app a news headline names, or -1
 void store_show(int app);                /* open its page in the Store */
 int store_uninstall(const char *tid, const char *name);   /* async; toasts the result, rescans Apps */
 int store_updates_count(void);           /* installed apps behind the catalogue (-1 not checked yet); Home's tile */
-int store_update_all(void);              /* asks, then updates them one by one; how many were queued */
+int store_update_all(void);
+int store_update_all_ask(int ask);       /* 0: Settings' automatic updates (no question) */              /* asks, then updates them one by one; how many were queued */
 int store_update_progress(int *of, float *frac);   /* during update all: which one (1-based), else 0 */
 int store_prepare_pkg(const char *vpk, const char *pkg, char tid[10]);   /* unzip + head.bin; <0 on failure */
 float store_job_frac(void);              /* progress of the download running now, 0..1 */
